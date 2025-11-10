@@ -1,0 +1,20 @@
+.env
+.venv
+.env.local
+.env.prod
+.env.local.users
+.env.prod.users
+.env.local.files
+.env.prod.files
+# New consolidated backend envs
+.env.local.backend
+.env.prod.backend
+
+# Frontend envs
+prophotos/.env.local
+prophotos/.env.production
+
+nginx.conf
+jenkinsfile
+
+Photos/
