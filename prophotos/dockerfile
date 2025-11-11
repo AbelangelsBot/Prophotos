@@ -1,0 +1,14 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Ensure dev server binds externally and file watching works in containers
+ENV HOST=0.0.0.0
+ENV CHOKIDAR_USEPOLLING=true
+
+# Vue CLI dev server port (see vue.config.js)
+EXPOSE 8082
+
+# Install deps at container start (works with bind mount + anonymous node_modules volume)
+CMD ["sh", "-c", "npm ci && npm run serve"]
+
