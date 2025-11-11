@@ -10,4 +10,5 @@ ENV CHOKIDAR_USEPOLLING=true
 EXPOSE 8082
 
 # Install deps at container start; fall back to npm install if lockfile is missing
-CMD ["sh", "-c", "if [ -f package-lock.json ]; then npm ci; else npm install; fi; npm run serve"]
+# Run Vue dev server in production mode so it loads .env.production
+CMD ["sh", "-c", "if [ -f package-lock.json ]; then npm ci; else npm install; fi; npx vue-cli-service serve --mode production"]
