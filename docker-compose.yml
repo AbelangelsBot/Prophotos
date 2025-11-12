@@ -22,7 +22,7 @@ services:
     build:
       context: ./prophotos
       dockerfile: dockerfile
-    image: abelangel/photos:${TAG}
+    image: abelangel/photos:latest
     container_name: prophotos-web
     working_dir: /app
     volumes:
@@ -38,7 +38,7 @@ services:
     build:
       context: ./backend-users
       dockerfile: Dockerfile
-    image: abelangel/photos_users:${TAG}
+    image: abelangel/photos_users:latest
     container_name: prophotos-users
     working_dir: /app
     environment:
@@ -73,7 +73,7 @@ services:
     build:
       context: ./backend-files
       dockerfile: Dockerfile
-    image: abelangel/photos_files:${TAG}
+    image: abelangel/photos_files:latest
     container_name: prophotos-files
     working_dir: /app
     environment:
