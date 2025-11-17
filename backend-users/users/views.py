@@ -110,6 +110,7 @@ def user_verification(request, token):
             user.verifie = True
             user.verified_at = now()
             user.link_verification = None
+            user.save()
 
             send_mail(
                 subject=f"Compte validé - ProPhotos",
