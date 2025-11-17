@@ -59,8 +59,6 @@ services:
       EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD}
       EMAIL_VERIFICATION_BASE: ${EMAIL_VERIFICATION_BASE}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
-    volumes:
-      - ./backend-users:/app
     ports:
       - "8001:8000"
     depends_on:
@@ -88,7 +86,6 @@ services:
       TOKEN_EXPIRATION_HOURS: ${TOKEN_EXPIRATION_HOURS}
       FILES_ROOT_DIR: ${FILES_ROOT_DIR}
     volumes:
-      - ./backend-files:/app
       - "${PHOTOS_HOST_DIR}:/data/photos"
     ports:
       - "8002:8000"
