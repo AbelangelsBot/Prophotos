@@ -22,14 +22,13 @@ services:
     build:
       context: ./prophotos
       dockerfile: dockerfile
+      args:
+        VUE_APP_USERS_API_URL: ${VUE_APP_USERS_API_URL}
+        VUE_APP_FILES_API_URL: ${VUE_APP_FILES_API_URL}
     image: abelangel/photos:latest
     container_name: prophotos-web
-    working_dir: /app
-    volumes:
-      - ./prophotos:/app
-      - /app/node_modules
     ports:
-      - "8082:8082"
+      - "8082:80"
     # If/when the frontend needs the DB, enable depends_on
     # depends_on:
     #   - db
