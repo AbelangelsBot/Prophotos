@@ -50,7 +50,8 @@ def create_user(request):
         try:
             data = json.loads(request.body)
             username = data.get('username')
-            email = data.get('email')
+            email_raw = data.get('email')
+            email = email_raw.strip().lower() if email_raw else None
             password = data.get('password')
 
             if not username or not email or not password:
@@ -152,6 +153,7 @@ def login(request):
 
             token = generate_token(user)
 
+            
             user.last_login = now()
             user.save()
 
@@ -161,4 +163,3 @@ def login(request):
             return JsonResponse({"error": "Données invalides."}, status=400)
 
     return JsonResponse({"error": "Méthode non autorisée."}, status=405)
-

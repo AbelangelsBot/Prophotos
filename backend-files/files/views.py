@@ -39,7 +39,7 @@ def get_files(request):
             for item in candidate.iterdir():
                 img = None
                 if item.is_file() and item.suffix.lower() in [".png", ".jpg", ".jpeg", ".gif"]:
-                    img = compress_and_encode_image(item, (256, 256), 20)
+                    img = compress_and_encode_image(item, (256/2, 256/2), 20)
 
                 content.append({
                     "Name": item.name,
@@ -90,13 +90,16 @@ def get_image_info(request):
 
         token = request.headers.get("Authorization", "").split(" ")[1] if "Authorization" in request.headers else None
         is_authenticated = False
-
+        token_mess='token absent'
         if token:
             try:
                 verify_token(token)
                 is_authenticated = True
+                token_mess='Token valide'
+
             except Exception:
                 is_authenticated = False
+                token_mess='Token invalide ou expire'
 
         try:
             if is_authenticated:
@@ -110,7 +113,8 @@ def get_image_info(request):
                 "Path": str(file_info.relative_to(root)),
                 "Size": f"{round(file_info.stat().st_size / 1024, 2)} KB",
                 "Type": file_info.suffix,
-                "Img": img_data
+                "Img": img_data,
+                "token info": token_mess,
             })
 
         except Exception as e:
@@ -128,7 +132,7 @@ def generate_protected_image(image_path):
 
             watermark = Image.new("RGBA", img.size, (255, 255, 255, 0))
             draw = ImageDraw.Draw(watermark)
-            font_size = max(50, img.size[0] // 10)
+            font_size = max(500, img.size[0] // 10)
             try:
                 font = ImageFont.truetype("arial.ttf", font_size)
             except Exception:
