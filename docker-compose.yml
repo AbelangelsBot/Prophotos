@@ -43,7 +43,7 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: users_service.settings
       DEBUG: ${DEBUG}
-      SECRET_KEY: ${USERS_SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -76,7 +76,7 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: files_service.settings
       DEBUG: ${DEBUG}
-      SECRET_KEY: ${FILES_SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
