@@ -181,12 +181,18 @@ export default {
     this.fetchDirectoryContent();
   },
   beforeRouteLeave(to, from, next) {
+    const passThroughPrefixes = ["/image", "/login", "/register"];
+    const isPassThrough = passThroughPrefixes.some((prefix) => to.path.startsWith(prefix));
+    if (isPassThrough) {
+      return next();
+    }
+
     if (this.currentPath !== "/") {
       this.goBack();
-      next(false);
-    } else {
-      next();
+      return next(false);
     }
+
+    next();
   },
 };
 </script>
