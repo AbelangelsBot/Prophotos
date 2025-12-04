@@ -13,6 +13,13 @@ ROOT_DIR = os.environ.get("FILES_ROOT_DIR")
 
 
 @csrf_exempt
+def hello(request):
+    if request.method == "GET":
+        return JsonResponse({"message": "Files service available"}, status=200)
+    return JsonResponse({"error": "Method not allowed."}, status=405)
+
+
+@csrf_exempt
 def get_files(request):
     if request.method == "GET":
         # Default to current directory under root, not "/" which escapes join semantics

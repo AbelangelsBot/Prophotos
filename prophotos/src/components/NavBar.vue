@@ -19,7 +19,7 @@
             <span class="nav-link">Bienvenue, {{ username }}</span>
           </li>
           <li class="nav-item">
-            <router-link to="/" class="nav-link">Home</router-link>
+            <router-link to="/" class="nav-link" @click="handleHomeClick">Home</router-link>
           </li>
           <li class="nav-item" v-if="!token">
             <router-link to="/login" class="nav-link">Login</router-link>
@@ -35,7 +35,7 @@
 </template>
 
 <script>
-import { USERS_API_URL } from "@/constants";
+import { USERS_API_URL, CURRENT_PATH_STORAGE_KEY, PATH_HISTORY_STORAGE_KEY } from "@/constants";
 
 export default {
   name: "NavBar",
@@ -88,6 +88,10 @@ export default {
       this.username = "";
       this.$emit("update-token", null);
       this.$router.push("/login");
+    },
+    handleHomeClick() {
+      localStorage.setItem(CURRENT_PATH_STORAGE_KEY, "/");
+      localStorage.setItem(PATH_HISTORY_STORAGE_KEY, JSON.stringify([]));
     },
   },
 };

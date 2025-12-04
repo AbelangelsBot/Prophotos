@@ -12,6 +12,13 @@ import json
 from django.utils.timezone import now
 from utils import generate_token, verify_token
 
+
+@csrf_exempt
+def hello(request):
+    if request.method == "GET":
+        return JsonResponse({"message": "Users service available"}, status=200)
+    return JsonResponse({"error": "Method not allowed."}, status=405)
+
 @csrf_exempt
 def get_users(request):
     users = User.objects.all().values('id', 'username', 'email', 'token')

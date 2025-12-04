@@ -79,21 +79,45 @@ import NavigationBar from "@/components/NavBar.vue";
 import FooterSection from "@/components/FootSection.vue";
 import axios from "axios";
 
-import { FILES_API_URL } from "@/constants";
+import { FILES_API_URL, CURRENT_PATH_STORAGE_KEY, PATH_HISTORY_STORAGE_KEY } from "@/constants";
+
+function getStoredPath() {
+  const storedPath = localStorage.getItem(CURRENT_PATH_STORAGE_KEY);
+  return storedPath || "/";
+}
+
+function getStoredHistory() {
+  try {
+    const storedHistory = localStorage.getItem(PATH_HISTORY_STORAGE_KEY);
+    return storedHistory ? JSON.parse(storedHistory) : [];
+  } catch (error) {
+    console.error("Unable to parse stored path history:", error);
+    return [];
+  }
+}
+
 export default {
   name: "HomePage",
   data() {
     return {
       token: localStorage.getItem("token") || null, 
       directoryContent: [],
-      currentPath: "/",
-      pathHistory: [],
+      currentPath: getStoredPath(),
+      pathHistory: getStoredHistory(),
       charging: false,
     };
   },
   components: {
     NavigationBar,
     FooterSection,
+  },
+  watch: {
+    currentPath(newPath) {
+      localStorage.setItem(CURRENT_PATH_STORAGE_KEY, newPath);
+    },
+    pathHistory(newHistory) {
+      localStorage.setItem(PATH_HISTORY_STORAGE_KEY, JSON.stringify(newHistory));
+    },
   },
   methods: {
     async fetchDirectoryContent() {
@@ -113,17 +137,21 @@ export default {
     },
 
     navigateToFolder(folderPath) {
-      this.pathHistory.push(this.currentPath);
+      this.pathHistory = [...this.pathHistory, this.currentPath];
       this.currentPath = folderPath;
       this.fetchDirectoryContent();
     },
     goBack() {
       if (this.pathHistory.length > 0) {
-        this.currentPath = this.pathHistory.pop();
+        const updatedHistory = [...this.pathHistory];
+        const previousPath = updatedHistory.pop();
+        this.pathHistory = updatedHistory;
+        this.currentPath = previousPath;
         this.fetchDirectoryContent();
       }
     },
     goRoot() {
+      this.pathHistory = [];
       this.currentPath = "/";
       this.fetchDirectoryContent();
     },
@@ -151,6 +179,14 @@ export default {
   },
   mounted() {
     this.fetchDirectoryContent();
+  },
+  beforeRouteLeave(to, from, next) {
+    if (this.currentPath !== "/") {
+      this.goBack();
+      next(false);
+    } else {
+      next();
+    }
   },
 };
 </script>
