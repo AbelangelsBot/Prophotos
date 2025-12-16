@@ -60,6 +60,7 @@ def create_user(request):
             email_raw = data.get('email')
             email = email_raw.strip().lower() if email_raw else None
             password = data.get('password')
+            admin_requested = bool(data.get('admin_request'))
 
             if not username or not email or not password:
                 return JsonResponse({"error": "Tous les champs sont requis."}, status=400)
@@ -143,6 +144,7 @@ def login(request):
             data = json.loads(request.body)
             email = data.get('email')
             password = data.get('password')
+            admin_requested = bool(data.get('admin_request'))
 
             if not email or not password:
                 return JsonResponse({"error": "Email et mot de passe requis."}, status=400)
@@ -155,6 +157,12 @@ def login(request):
             if not user.verifie:
                 return JsonResponse(
                     {"error": "Compte non vérifié. Veuillez patienter la validation.", "code": "not_verified"},
+                    status=403
+                )
+
+            if admin_requested and not user.admin:
+                return JsonResponse(
+                    {"error": "Accès administrateur refusé pour ce compte.", "code": "not_admin"},
                     status=403
                 )
 

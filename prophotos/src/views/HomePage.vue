@@ -89,41 +89,35 @@
             :key="index" 
             class="col-6 col-sm-4 col-md-3 col-lg-2"
           >
-            <div class="card h-100 text-center p-2 shadow-sm">
-              <div v-if="item.Img" class="mb-2">
+            <div class="card h-100 text-center p-2 shadow-sm item-card">
+              <div
+                v-if="item.Img"
+                class="mb-2 image-thumb"
+                @click="viewImage(item)"
+              >
                 <img 
                   :src="item.Img" 
                   alt="Preview" 
                   class="img-fluid rounded clickable-image"
-                  style="height: 8rem; object-fit: cover; cursor: pointer;" 
-                  @click="viewImage(item)" 
                 />
               </div>
 
-              <div v-else-if="item.isDirectory" class="mb-2 folder-icon">
-                DIR
+              <div
+                v-else-if="item.isDirectory"
+                class="mb-3 folder-pill"
+                @click="navigateToFolder(item.Path)"
+              >
+                <span class="folder-name">{{ item.Name }}</span>
+                <span class="folder-label">DIR</span>
               </div>
 
-              <div class="fw-bold text-truncate" :title="item.Name">
-                {{ item.Name }}
-              </div>
-
-              <div class="mt-2">
-                <button 
-                  v-if="item.isDirectory" 
-                  @click="navigateToFolder(item.Path)" 
-                  class="btn btn-outline-primary btn-sm"
-                >
-                  Open
-                </button>
-                <button 
-                  v-else-if="item.Img && token" 
-                  @click="downloadImage(item.Path, item.Name)" 
-                  class="btn btn-primary btn-sm"
-                >
-                  Telecharger
-                </button>
-              </div>
+              <button 
+                v-else-if="item.Img && token" 
+                @click="downloadImage(item.Path, item.Name)" 
+                class="btn btn-primary btn-sm mt-2"
+              >
+                Telecharger
+              </button>
             </div>
           </div>
         </div>
@@ -340,15 +334,64 @@ main {
 
 .clickable-image {
   cursor: pointer;
-  transition: transform 0.2s;
-}
-
-.clickable-image:hover {
-  transform: scale(1.05);
+  transition: transform 0.15s ease-in-out;
+  max-height: 6rem;
+  object-fit: cover;
 }
 
 .folder-icon {
   font-size: 1.5rem;
   font-weight: 600;
+}
+
+.item-card {
+  border: 1px solid #e9ecef;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.item-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08);
+}
+
+.image-thumb {
+  border: 1px dashed #e0e0e0;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.folder-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 10px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f2f6ff, #e4ebff);
+  border: 1px solid #d7e2ff;
+  cursor: pointer;
+  transition: transform 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
+}
+
+.folder-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0.35rem 0.65rem rgba(0, 0, 0, 0.06);
+}
+
+.folder-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1f2937;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.folder-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #5b6b7a;
+  opacity: 0.8;
 }
 </style>
