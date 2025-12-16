@@ -116,7 +116,7 @@ export default {
 
     handleLoginSuccess(token) {
       localStorage.setItem("token", token); // Stocker le token
-      this.$router.push("/"); // Rediriger vers la home
+      this.$router.push("/images"); // Rediriger vers la home
       this.$emit("update-token", token); // Mettre à jour le token pour le NavBar
     },
   },

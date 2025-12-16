@@ -6,6 +6,7 @@ def generate_token(user):
     payload = {
         'user_id': user.id,
         'username': getattr(user, 'username', ''),
+        'admin': getattr(user, 'admin', False),
         'exp': datetime.utcnow() + timedelta(hours=settings.TOKEN_EXPIRATION_HOURS),
         'iat': datetime.utcnow(),
     }
@@ -19,4 +20,3 @@ def verify_token(token):
         raise Exception("Le token a expiré.")
     except jwt.InvalidTokenError:
         raise Exception("Le token est invalide.")
-

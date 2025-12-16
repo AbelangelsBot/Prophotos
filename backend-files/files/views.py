@@ -3,6 +3,7 @@ from django.views.decorators.csrf import csrf_exempt
 from pathlib import Path
 import os
 import base64
+import json
 from PIL import Image
 from io import BytesIO
 from utils import verify_token
@@ -61,6 +62,120 @@ def get_files(request):
             return JsonResponse({"error": str(e)}, status=500)
 
     return JsonResponse({"error": "Invalid HTTP method."}, status=405)
+
+
+@csrf_exempt
+def add_files(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Invalid HTTP method."}, status=405)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse({"error": "Token manquant."}, status=401)
+
+    token = auth_header.split(" ")[1]
+    try:
+        payload = verify_token(token)
+    except Exception:
+        return JsonResponse({"error": "Token invalide ou expiré."}, status=401)
+
+    if not payload.get("admin"):
+        return JsonResponse({"error": "Accès réservé aux administrateurs."}, status=403)
+
+    relative_path = request.POST.get("path", "")
+    root = Path(ROOT_DIR).resolve()
+    target_dir = (root / str(relative_path).lstrip("/\\")).resolve()
+
+    try:
+        if not target_dir.is_relative_to(root):
+            return JsonResponse({"error": "Invalid path."}, status=400)
+    except AttributeError:
+        if str(target_dir).find(str(root)) != 0:
+            return JsonResponse({"error": "Invalid path."}, status=400)
+
+    if not request.FILES:
+        return JsonResponse({"error": "Aucun fichier fourni."}, status=400)
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_files = []
+    incoming_files = request.FILES.getlist("files") or list(request.FILES.values())
+    for file_obj in incoming_files:
+        filename = Path(file_obj.name).name
+        destination = target_dir / filename
+
+        with open(destination, "wb+") as dest:
+            for chunk in file_obj.chunks():
+                dest.write(chunk)
+
+        saved_files.append({"Name": filename, "Path": str(destination.relative_to(root))})
+
+    return JsonResponse({"message": "Fichiers ajoutés.", "files": saved_files}, status=201)
+
+@csrf_exempt
+def add_folder(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Invalid HTTP method.'}, status=405)
+
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return JsonResponse({'error': 'Token manquant.'}, status=401)
+
+    token = auth_header.split(' ')[1]
+    try:
+        payload = verify_token(token)
+    except Exception:
+        return JsonResponse({'error': 'Token invalide ou expire.'}, status=401)
+
+    if not payload.get('admin'):
+        return JsonResponse({'error': 'Acces reserve aux administrateurs.'}, status=403)
+
+    if request.content_type and 'application/json' in request.content_type.lower():
+        try:
+            data = json.loads(request.body.decode() or '{}')
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'JSON invalide.'}, status=400)
+    else:
+        data = request.POST
+
+    relative_path = data.get('path', '')
+    folder_name_raw = data.get('folder_name') or data.get('name') or ''
+    folder_name = Path(str(folder_name_raw).strip()).name
+
+    if not folder_name:
+        return JsonResponse({'error': 'Nom de dossier requis.'}, status=400)
+
+    root = Path(ROOT_DIR).resolve()
+    target_dir = (root / str(relative_path).lstrip("/\\")).resolve()
+
+    try:
+        if not target_dir.is_relative_to(root):
+            return JsonResponse({'error': 'Invalid path.'}, status=400)
+    except AttributeError:
+        if str(target_dir).find(str(root)) != 0:
+            return JsonResponse({'error': 'Invalid path.'}, status=400)
+
+    if not target_dir.exists():
+        return JsonResponse({'error': 'Repertoire parent introuvable.'}, status=404)
+
+    new_folder_path = (target_dir / folder_name).resolve()
+
+    try:
+        if not new_folder_path.is_relative_to(root):
+            return JsonResponse({'error': 'Invalid path.'}, status=400)
+    except AttributeError:
+        if str(new_folder_path).find(str(root)) != 0:
+            return JsonResponse({'error': 'Invalid path.'}, status=400)
+
+    if new_folder_path.exists():
+        return JsonResponse({'error': 'Un fichier ou dossier avec ce nom existe deja.'}, status=409)
+
+    new_folder_path.mkdir(parents=True, exist_ok=False)
+
+    return JsonResponse({
+        'message': 'Dossier cree.',
+        'path': str(new_folder_path.relative_to(root)),
+    }, status=201)
 
 
 def compress_and_encode_image(image_path, max_size=(500, 500), quality=70):

@@ -21,7 +21,7 @@ def hello(request):
 
 @csrf_exempt
 def get_users(request):
-    users = User.objects.all().values('id', 'username', 'email', 'token')
+    users = User.objects.all().values('id', 'username', 'email', 'token', 'admin')
     return JsonResponse(list(users), safe=False)
 
 @csrf_exempt
@@ -30,7 +30,7 @@ def get_current_user(request):
     try:
         payload = verify_token(token)
         user = User.objects.get(id=payload["user_id"])
-        return JsonResponse({"username": user.username}, status=200)
+        return JsonResponse({"username": user.username, "admin": user.admin}, status=200)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=401)
 
@@ -44,7 +44,7 @@ def verify_token_session(request):
         token = auth_header.split(" ")[1]
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
         user = User.objects.get(id=payload["user_id"])
-        return JsonResponse({"message": "Token valide", "user": {"username": user.username}}, status=200)
+        return JsonResponse({"message": "Token valide", "user": {"username": user.username, "admin": user.admin}}, status=200)
     except jwt.ExpiredSignatureError:
         return JsonResponse({"error": "Token expiré"}, status=401)
     except jwt.InvalidTokenError:
@@ -164,7 +164,7 @@ def login(request):
             user.last_login = now()
             user.save()
 
-            return JsonResponse({"message": "Connexion réussie.", "token": token}, status=200)
+            return JsonResponse({"message": "Connexion réussie.", "token": token, "admin": user.admin}, status=200)
 
         except json.JSONDecodeError:
             return JsonResponse({"error": "Données invalides."}, status=400)
