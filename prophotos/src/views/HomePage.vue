@@ -89,35 +89,54 @@
             :key="index" 
             class="col-6 col-sm-4 col-md-3 col-lg-2"
           >
-            <div class="card h-100 text-center p-2 shadow-sm item-card">
-              <div
-                v-if="item.Img"
-                class="mb-2 image-thumb"
-                @click="viewImage(item)"
-              >
-                <img 
-                  :src="item.Img" 
-                  alt="Preview" 
-                  class="img-fluid rounded clickable-image"
-                />
-              </div>
+            <div class="card h-100 shadow-sm item-card">
+              <div class="item-card-inner">
+                <div
+                  v-if="item.Img"
+                  class="media-slot is-clickable"
+                  @click="viewImage(item)"
+                >
+                  <img 
+                    :src="item.Img" 
+                    alt="Preview" 
+                    class="media-image"
+                  />
+                </div>
 
-              <div
-                v-else-if="item.isDirectory"
-                class="mb-3 folder-pill"
-                @click="navigateToFolder(item.Path)"
-              >
-                <span class="folder-name">{{ item.Name }}</span>
-                <span class="folder-label">DIR</span>
-              </div>
+                <div
+                  v-else-if="item.isDirectory"
+                  class="media-slot folder-slot is-clickable"
+                  @click="navigateToFolder(item.Path)"
+                >
+                  <div class="folder-glyph">DIR</div>
+                </div>
 
-              <button 
-                v-else-if="item.Img && token" 
-                @click="downloadImage(item.Path, item.Name)" 
-                class="btn btn-primary btn-sm mt-2"
-              >
-                Telecharger
-              </button>
+                <div v-else class="media-slot file-slot">
+                  <div class="file-glyph">FILE</div>
+                </div>
+
+                <div class="item-meta">
+                  <div class="item-name" :title="item.Name">{{ item.Name }}</div>
+                  <div class="item-type">{{ item.isDirectory ? "Dossier" : "Fichier" }}</div>
+                </div>
+
+                <div class="item-actions">
+                  <button 
+                    v-if="item.Img && token"
+                    @click.stop="downloadImage(item.Path, item.Name)" 
+                    class="btn btn-primary btn-sm"
+                  >
+                    Telecharger
+                  </button>
+                  <button
+                    v-if="token && isAdmin"
+                    @click.stop="deleteItem(item)"
+                    class="btn btn-danger btn-sm"
+                  >
+                    Supprimer
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -287,6 +306,29 @@ export default {
     viewImage(item) {
       this.$router.push({ path: "/image", query: { path: item.Path } });
     },
+    async deleteItem(item) {
+      if (!this.token || !this.isAdmin) {
+        return;
+      }
+
+      const label = item.isDirectory ? "dossier" : "fichier";
+      if (!window.confirm(`Supprimer ce ${label} ?`)) {
+        return;
+      }
+
+      try {
+        await axios.post(
+          `${FILES_API_URL}/files/delete/`,
+          { path: item.Path },
+          { headers: { Authorization: `Bearer ${this.token}` } }
+        );
+        this.fetchDirectoryContent();
+      } catch (error) {
+        console.error("Error deleting item:", error);
+        alert("Erreur lors de la suppression.");
+      }
+    },
+
     async downloadImage(imagePath, imageName) {
       try {
         const response = await axios.get(`${FILES_API_URL}/files/image/download`, {
@@ -332,21 +374,10 @@ main {
   flex: 1;
 }
 
-.clickable-image {
-  cursor: pointer;
-  transition: transform 0.15s ease-in-out;
-  max-height: 6rem;
-  object-fit: cover;
-}
-
-.folder-icon {
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
 .item-card {
   border: 1px solid #e9ecef;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+  overflow: hidden;
 }
 
 .item-card:hover {
@@ -354,44 +385,100 @@ main {
   box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08);
 }
 
-.image-thumb {
-  border: 1px dashed #e0e0e0;
-  padding: 4px;
-  border-radius: 8px;
+.item-card-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  text-align: center;
 }
 
-.folder-pill {
-  display: inline-flex;
-  flex-direction: column;
+.media-slot {
+  height: 9.5rem;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  padding: 12px 10px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #f2f6ff, #e4ebff);
-  border: 1px solid #d7e2ff;
+  background: #f7f8fb;
+  border-bottom: 1px solid #eef1f4;
+}
+
+.media-slot.is-clickable {
   cursor: pointer;
-  transition: transform 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
 }
 
-.folder-pill:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 0.35rem 0.65rem rgba(0, 0, 0, 0.06);
-}
-
-.folder-name {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #1f2937;
+.media-image {
+  max-height: 100%;
   max-width: 100%;
-  text-overflow: ellipsis;
-  overflow: hidden;
+  object-fit: contain;
 }
 
-.folder-label {
-  font-size: 0.75rem;
+.folder-slot {
+  background: linear-gradient(135deg, #f4f7ff, #e7eeff);
+}
+
+.folder-glyph {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 12px;
+  background: #eef3ff;
+  border: 1px solid #d7e2ff;
+  color: #1f2a44;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.08em;
+}
+
+.file-slot {
+  background: #f6f7f8;
+}
+
+.file-glyph {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 12px;
+  background: #f0f1f3;
+  border: 1px solid #e2e5e9;
+  color: #4b5563;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.08em;
+}
+
+.item-meta {
+  padding: 0.6rem 0.75rem 0.35rem;
+}
+
+.item-name {
+  font-size: 0.95rem;
   font-weight: 600;
-  color: #5b6b7a;
-  opacity: 0.8;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-type {
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+}
+
+.item-actions {
+  margin-top: auto;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border-top: 1px solid #eef1f4;
+  background: #ffffff;
 }
 </style>

@@ -2,6 +2,7 @@ from django.http import FileResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from pathlib import Path
 import os
+import shutil
 import base64
 import json
 from PIL import Image
@@ -176,6 +177,63 @@ def add_folder(request):
         'message': 'Dossier cree.',
         'path': str(new_folder_path.relative_to(root)),
     }, status=201)
+
+@csrf_exempt
+def delete_item(request):
+    if request.method not in ("POST", "DELETE"):
+        return JsonResponse({"error": "Methode non autorisee."}, status=405)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse({"error": "Token manquant."}, status=401)
+
+    token = auth_header.split(" ")[1]
+    try:
+        payload = verify_token(token)
+    except Exception:
+        return JsonResponse({"error": "Token invalide ou expire."}, status=401)
+
+    if not payload.get("admin"):
+        return JsonResponse({"error": "Acces reserve aux administrateurs."}, status=403)
+
+    if request.content_type and "application/json" in request.content_type.lower():
+        try:
+            data = json.loads(request.body.decode() or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "JSON invalide."}, status=400)
+    else:
+        data = request.POST
+
+    relative_path = data.get("path", "")
+    if not relative_path:
+        return JsonResponse({"error": "Chemin requis."}, status=400)
+
+    root = Path(ROOT_DIR).resolve()
+    target = (root / str(relative_path).lstrip("/\\")).resolve()
+
+    try:
+        if not target.is_relative_to(root):
+            return JsonResponse({"error": "Invalid path."}, status=400)
+    except AttributeError:
+        if str(target).find(str(root)) != 0:
+            return JsonResponse({"error": "Invalid path."}, status=400)
+
+    if target == root:
+        return JsonResponse({"error": "Suppression de la racine interdite."}, status=400)
+
+    if not target.exists():
+        return JsonResponse({"error": "Fichier ou dossier introuvable."}, status=404)
+
+    try:
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"message": "Suppression effectuee."}, status=200)
+
 
 
 def compress_and_encode_image(image_path, max_size=(500, 500), quality=70):

@@ -8,4 +8,5 @@ urlpatterns = [
     path('image/download/', views.download_image, name='download_image'),
     path('add/', views.add_files, name='add_files'),
     path('folder/', views.add_folder, name='add_folder'),
+    path('delete/', views.delete_item, name='delete_item'),
 ]

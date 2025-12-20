@@ -19,6 +19,17 @@
               <label for="password" class="form-label">Mot de passe</label>
               <input type="password" id="password" v-model="registerForm.password" class="form-control" required />
             </div>
+            <div class="form-check mb-3">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="register-admin"
+                v-model="registerForm.admin_request"
+              />
+              <label class="form-check-label" for="register-admin">
+                Demander un compte administrateur
+              </label>
+            </div>
             <button type="submit" class="btn btn-primary w-100">
               S'inscrire
             </button>
@@ -36,12 +47,6 @@
             <div class="mb-3">
               <label for="login-password" class="form-label">Mot de passe</label>
               <input type="password" id="login-password" v-model="loginForm.password" class="form-control" required />
-            </div>
-            <div class="form-check mb-3">
-              <input class="form-check-input" type="checkbox" id="login-admin" v-model="loginForm.admin_request" />
-              <label class="form-check-label" for="login-admin">
-                Connexion en mode administrateur
-              </label>
             </div>
             <button type="submit" class="btn btn-primary w-100">
               Se connecter
@@ -69,11 +74,11 @@ export default {
         username: "",
         email: "",
         password: "",
+        admin_request: false,
       },
       loginForm: {
         email: "",
         password: "",
-        admin_request: false,
       },
     };
   },
@@ -105,7 +110,6 @@ export default {
           body: JSON.stringify({
             email: this.loginForm.email,
             password: this.loginForm.password,
-            admin_request: this.loginForm.admin_request,
           }),
         });
         const data = await response.json();

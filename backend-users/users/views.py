@@ -80,6 +80,7 @@ def create_user(request):
                 verifie=False,
                 created_at=now(),
                 link_verification=verification_token,
+                admin=admin_requested,
             )
             user.save()
 
@@ -92,6 +93,7 @@ def create_user(request):
                     "Un nouvel utilisateur s'est inscrit.\n\n"
                     f"Nom d'utilisateur : {username}\n"
                     f"Email : {email}\n"
+                    f"Demande admin : {'oui' if admin_requested else 'non'}\n"
                     "Lien de vérification :\n"
                     f"{verification_link}\n"
                 ),
@@ -144,7 +146,6 @@ def login(request):
             data = json.loads(request.body)
             email = data.get('email')
             password = data.get('password')
-            admin_requested = bool(data.get('admin_request'))
 
             if not email or not password:
                 return JsonResponse({"error": "Email et mot de passe requis."}, status=400)
@@ -157,12 +158,6 @@ def login(request):
             if not user.verifie:
                 return JsonResponse(
                     {"error": "Compte non vérifié. Veuillez patienter la validation.", "code": "not_verified"},
-                    status=403
-                )
-
-            if admin_requested and not user.admin:
-                return JsonResponse(
-                    {"error": "Accès administrateur refusé pour ce compte.", "code": "not_admin"},
                     status=403
                 )
 
