@@ -21,10 +21,16 @@
           <li class="nav-item">
             <router-link to="/images" class="nav-link">Home</router-link>
           </li>
+          <li class="nav-item" v-if="token">
+            <router-link to="/personnes" class="nav-link">Personnes</router-link>
+          </li>
+          <li class="nav-item">
+            <router-link to="/recfac" class="nav-link">Reconnaissance Faciale</router-link>
+          </li>
           <li class="nav-item" v-if="!token">
             <router-link to="/login" class="nav-link">Login</router-link>
           </li>
-          
+
           <li class="nav-item" v-if="token">
             <span @click="logout" class="nav-link cursor-pointer">Logout</span>
           </li>

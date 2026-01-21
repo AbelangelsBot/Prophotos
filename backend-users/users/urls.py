@@ -10,4 +10,5 @@ urlpatterns = [
     path("me/", views.get_current_user, name="get_current_user"),
     path("verify/<str:token>/", views.user_verification, name="user_verification"),
     path("verify-token/", views.verify_token_session, name="verify_token"),
+    path("resend-verification/", views.resend_verification, name="resend_verification"),
 ]

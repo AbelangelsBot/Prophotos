@@ -1,0 +1,101 @@
+import os
+import time
+from typing import Any, Dict
+
+import requests
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+
+APP_NAME = "backend-recfac"
+START_TS = time.time()
+GPU_WORKER_URL = os.getenv("GPU_WORKER_URL", "").rstrip("/")
+GPU_WORKER_TOKEN = os.getenv("GPU_WORKER_TOKEN", "")
+
+app = FastAPI(title=APP_NAME)
+
+
+def _gpu_headers() -> Dict[str, str]:
+    if GPU_WORKER_TOKEN:
+        return {"X-Token": GPU_WORKER_TOKEN}
+    return {}
+
+
+def _ensure_gpu_url() -> None:
+    if not GPU_WORKER_URL:
+        raise HTTPException(status_code=503, detail="GPU_WORKER_URL not set")
+
+
+@app.get("/check-health")
+def check_health():
+    gpu_ok = False
+    gpu_detail: Dict[str, Any] = {}
+
+    if GPU_WORKER_URL:
+        try:
+            resp = requests.get(
+                f"{GPU_WORKER_URL}/health",
+                headers=_gpu_headers(),
+                timeout=3,
+            )
+            gpu_ok = resp.ok
+            try:
+                gpu_detail = resp.json()
+            except ValueError:
+                gpu_detail = {
+                    "status_code": resp.status_code,
+                    "body": resp.text[:200],
+                }
+        except requests.RequestException as exc:
+            gpu_detail = {"error": str(exc)}
+    else:
+        gpu_detail = {"error": "GPU_WORKER_URL not set"}
+
+    return {
+        "service": APP_NAME,
+        "ok": True,
+        "uptime_sec": round(time.time() - START_TS, 2),
+        "gpu_worker_ok": gpu_ok,
+        "gpu_worker": gpu_detail,
+    }
+
+
+@app.post("/vectorize")
+async def vectorize(image: UploadFile = File(...), max_faces: int = 0):
+    _ensure_gpu_url()
+
+    if image.content_type is None or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Please upload an image")
+
+    files = {
+        "image": (
+            image.filename or "image",
+            image.file,
+            image.content_type,
+        )
+    }
+    params: Dict[str, Any] = {}
+    if max_faces and max_faces > 0:
+        params["max_faces"] = max_faces
+
+    try:
+        resp = requests.post(
+            f"{GPU_WORKER_URL}/embed_faces",
+            headers=_gpu_headers(),
+            files=files,
+            params=params,
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"GPU worker error: {exc}") from exc
+
+    if not resp.ok:
+        try:
+            detail = resp.json()
+        except ValueError:
+            detail = {
+                "status_code": resp.status_code,
+                "body": resp.text[:200],
+            }
+        raise HTTPException(status_code=resp.status_code, detail=detail)
+
+    return JSONResponse(resp.json())

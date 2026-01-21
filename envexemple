@@ -1,0 +1,38 @@
+DEBUG=
+ALLOWED_HOSTS=
+
+POSTGRES_DB=
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+POSTGRES_HOST=
+POSTGRES_PORT=
+
+TOKEN_EXPIRATION_HOURS=
+
+# Shared secret for both backend services
+SECRET_KEY=
+
+# Email (used by users service)
+EMAIL_BACKEND=
+EMAIL_HOST=
+EMAIL_PORT=
+EMAIL_USE_TLS=
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+EMAIL_VERIFICATION_BASE=
+ADMIN_EMAIL=
+
+# Files service
+FILES_ROOT_DIR=
+
+# Host folder mapped into the container's /data/photos
+# Use forward slashes on Windows to avoid escaping issues
+# Example for C: drive
+PHOTOS_HOST_DIR=
+VUE_APP_USERS_API_URL=
+VUE_APP_FILES_API_URL=
+
+
+# Face recognition service
+GPU_WORKER_URL=
+GPU_WORKER_TOKEN=

@@ -1,0 +1,32 @@
+# CUDA base image (runtime) for Nvidia GPUs
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+# Prevent timezone prompt during build
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Europe/Paris \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# System deps + build tools for insightface
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-dev \
+    build-essential cmake pkg-config \
+    ca-certificates curl \
+    libglib2.0-0 libsm6 libxext6 libxrender1 \
+    libgomp1 libopenblas-dev \
+    libopencv-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt /app/requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+COPY main.py /app/main.py
+
+EXPOSE 8000
+
+# Tip: set GPU_WORKER_TOKEN to require header X-Token
+ENV GPU_WORKER_TOKEN=supersecret
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
