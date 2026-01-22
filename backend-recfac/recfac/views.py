@@ -7,7 +7,6 @@ from datetime import datetime
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
-from django.db import models
 from django.db.models import Q
 
 from .models import Image, Face, Person
@@ -202,13 +201,6 @@ def _update_person_average_embedding(person_name):
 
 
 @csrf_exempt
-def hello(request):
-    """Health check endpoint."""
-    if request.method == "GET":
-        return JsonResponse({"message": "Recfac service available"}, status=200)
-    return JsonResponse({"error": "Method not allowed."}, status=405)
-
-
 @csrf_exempt
 def check_health(request):
     """
@@ -664,44 +656,6 @@ def search_face(request):
 
 
 @csrf_exempt
-def get_image_faces(request):
-    """
-    Retourne la liste des visages détectés dans une image.
-    GET /recfac/image/<image_id>/faces/
-    """
-    if request.method != "GET":
-        return JsonResponse({"error": "Method not allowed."}, status=405)
-
-    image_id = request.GET.get('image_id')
-    if not image_id:
-        return JsonResponse({"error": "image_id required."}, status=400)
-
-    try:
-        image = Image.objects.get(id=image_id)
-    except Image.DoesNotExist:
-        return JsonResponse({"error": "Image not found."}, status=404)
-
-    faces = image.faces.all()
-    faces_list = []
-
-    for face in faces:
-        faces_list.append({
-            "face_id": str(face.id),
-            "bbox": [face.bbox_x1, face.bbox_y1, face.bbox_x2, face.bbox_y2],
-            "det_score": face.det_score,
-            "person_name": face.person_name,
-            "cluster_id": face.cluster_id,
-        })
-
-    return JsonResponse({
-        "image_id": str(image.id),
-        "image_path": image.path,
-        "faces_count": len(faces_list),
-        "faces": faces_list,
-    })
-
-
-@csrf_exempt
 def tag_face(request):
     """
     Tagger un visage avec le nom d'une personne.
@@ -894,63 +848,6 @@ def list_persons(request):
         })
 
     return JsonResponse({
-        "count": len(persons_list),
-        "persons": persons_list,
-    })
-
-
-def search_persons(request):
-    """
-    Recherche des personnes par nom (filtre texte).
-    GET /recfac/persons/search/?q=john
-    """
-    if request.method != "GET":
-        return JsonResponse({"error": "Method not allowed."}, status=405)
-
-    query = request.GET.get('q', '').strip()
-
-    from django.db.models import Count
-
-    # Base queryset: personnes avec des faces
-    persons_qs = (
-        Face.objects
-        .filter(person_name__isnull=False)
-        .exclude(person_name='')
-    )
-
-    # Si query fournie, filtrer par nom (case-insensitive, contient)
-    if query:
-        persons_qs = persons_qs.filter(person_name__icontains=query)
-
-    # Grouper et compter
-    persons = (
-        persons_qs
-        .values('person_name')
-        .annotate(faces_count=Count('id'))
-        .order_by('person_name')
-    )
-
-    persons_list = []
-    seen_names = set()
-
-    for person in persons:
-        name = person['person_name'].strip()
-        if not name:
-            continue
-
-        name_lower = name.lower()
-        if name_lower in seen_names:
-            continue
-
-        seen_names.add(name_lower)
-
-        persons_list.append({
-            "name": name,
-            "faces_count": person['faces_count'],
-        })
-
-    return JsonResponse({
-        "query": query,
         "count": len(persons_list),
         "persons": persons_list,
     })
@@ -1151,10 +1048,139 @@ def get_image_details(request):
 
 
 @csrf_exempt
-def get_folder_stats(request):
+def get_untagged_faces(request):
     """
-    Retourne les statistiques recfac d'un dossier.
-    GET /recfac/folder-stats/?path=relative/folder/path
+    Récupère les visages non taggés avec pagination.
+    GET /recfac/faces/untagged/?page=1&limit=20
+    """
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed."}, status=405)
+
+    # Vérification du token (admin seulement)
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse({"error": "Token manquant."}, status=401)
+
+    token = auth_header.split(" ")[1]
+    try:
+        payload = verify_token(token)
+        if not payload.get("admin"):
+            return JsonResponse({"error": "Admin access required."}, status=403)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=401)
+
+    # Pagination
+    try:
+        page = int(request.GET.get('page', 1))
+        limit = int(request.GET.get('limit', 20))
+    except ValueError:
+        page = 1
+        limit = 20
+
+    if page < 1:
+        page = 1
+    if limit < 1 or limit > 100:
+        limit = 20
+
+    offset = (page - 1) * limit
+
+    # Récupérer les visages non taggés
+    untagged_faces = Face.objects.filter(
+        Q(person_name__isnull=True) | Q(person_name='')
+    ).select_related('image').order_by('-image__scan_date', 'id')
+
+    total_count = untagged_faces.count()
+    faces_page = untagged_faces[offset:offset + limit]
+
+    faces_list = []
+    for face in faces_page:
+        # Générer le thumbnail du visage (crop de l'image)
+        face_data = {
+            "face_id": str(face.id),
+            "bbox": [face.bbox_x1, face.bbox_y1, face.bbox_x2, face.bbox_y2],
+            "det_score": face.det_score,
+            "image_path": face.image.path if face.image else None,
+            "image_id": str(face.image.id) if face.image else None,
+            "scan_date": face.image.scan_date.isoformat() if face.image and face.image.scan_date else None,
+        }
+        faces_list.append(face_data)
+
+    return JsonResponse({
+        "total_count": total_count,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total_count + limit - 1) // limit,
+        "faces": faces_list,
+    })
+
+
+@csrf_exempt
+def delete_face(request):
+    """
+    Supprime un visage de la base de données.
+    DELETE /recfac/face/delete/
+    Body JSON: {"face_id": "uuid"}
+    """
+    if request.method != "DELETE" and request.method != "POST":
+        return JsonResponse({"error": "Method not allowed."}, status=405)
+
+    # Vérification du token (admin seulement)
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse({"error": "Token manquant."}, status=401)
+
+    token = auth_header.split(" ")[1]
+    try:
+        payload = verify_token(token)
+        if not payload.get("admin"):
+            return JsonResponse({"error": "Admin access required."}, status=403)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=401)
+
+    import json
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON."}, status=400)
+
+    face_id = data.get("face_id")
+    if not face_id:
+        return JsonResponse({"error": "face_id required."}, status=400)
+
+    try:
+        face = Face.objects.get(id=face_id)
+    except Face.DoesNotExist:
+        return JsonResponse({"error": "Face not found."}, status=404)
+
+    # Sauvegarder les infos pour la réponse
+    image = face.image
+    person_name = face.person_name
+
+    # Supprimer le visage
+    face.delete()
+
+    # Mettre à jour le compteur de visages de l'image
+    if image:
+        image.faces_count = image.faces.count()
+        image.save()
+
+    # Recalculer l'embedding moyen de la personne si elle était taggée
+    if person_name:
+        _update_person_average_embedding(person_name)
+
+    return JsonResponse({
+        "success": True,
+        "deleted_face_id": face_id,
+        "image_path": image.path if image else None,
+    })
+
+
+@csrf_exempt
+def get_face_image(request):
+    """
+    Récupère l'image croppée d'un visage (thumbnail).
+    GET /recfac/face/image/?face_id=uuid
+    Retourne l'image en base64.
     """
     if request.method != "GET":
         return JsonResponse({"error": "Method not allowed."}, status=405)
@@ -1170,45 +1196,61 @@ def get_folder_stats(request):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=401)
 
-    folder_path = request.GET.get('path', '').strip()
-    if not folder_path:
-        # Stats globales si pas de path
-        images = Image.objects.all()
-    else:
-        # Filtrer les images dans ce folder
-        images = Image.objects.filter(path__startswith=folder_path)
+    face_id = request.GET.get('face_id')
+    if not face_id:
+        return JsonResponse({"error": "face_id required."}, status=400)
 
-    total_images = images.count()
-    scanned_images = images.filter(scanned=True).count()
-    total_faces = images.aggregate(total=models.Sum('faces_count'))['total'] or 0
+    try:
+        face = Face.objects.select_related('image').get(id=face_id)
+    except Face.DoesNotExist:
+        return JsonResponse({"error": "Face not found."}, status=404)
 
-    # Récupérer les IDs des images du folder
-    image_ids = images.values_list('id', flat=True)
+    if not face.image:
+        return JsonResponse({"error": "Image not found for this face."}, status=404)
 
-    # Compter les personnes dans ce folder
-    persons_in_folder = Face.objects.filter(
-        image_id__in=image_ids,
-        person_name__isnull=False
-    ).values('person_name').annotate(
-        faces_count=models.Count('id')
-    ).order_by('-faces_count')
+    # Charger l'image originale
+    image_path = os.path.join(ROOT_DIR, face.image.path)
+    if not os.path.exists(image_path):
+        return JsonResponse({"error": "Image file not found."}, status=404)
 
-    persons_list = []
-    for person in persons_in_folder:
-        persons_list.append({
-            "name": person['person_name'],
-            "faces_count": person['faces_count'],
+    try:
+        from PIL import Image as PILImage
+        import base64
+        from io import BytesIO
+
+        img = PILImage.open(image_path)
+
+        # Crop le visage avec une marge de 20%
+        bbox = [face.bbox_x1, face.bbox_y1, face.bbox_x2, face.bbox_y2]
+        width = bbox[2] - bbox[0]
+        height = bbox[3] - bbox[1]
+        margin = 0.2
+
+        crop_x1 = max(0, int(bbox[0] - width * margin))
+        crop_y1 = max(0, int(bbox[1] - height * margin))
+        crop_x2 = min(img.width, int(bbox[2] + width * margin))
+        crop_y2 = min(img.height, int(bbox[3] + height * margin))
+
+        face_crop = img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+
+        # Redimensionner à une taille raisonnable (150x150 max)
+        max_size = 150
+        face_crop.thumbnail((max_size, max_size), PILImage.Resampling.LANCZOS)
+
+        # Convertir en base64
+        buffer = BytesIO()
+        face_crop.save(buffer, format='JPEG', quality=85)
+        img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+        return JsonResponse({
+            "face_id": str(face.id),
+            "image": f"data:image/jpeg;base64,{img_base64}",
+            "bbox": bbox,
+            "image_path": face.image.path,
         })
 
-    return JsonResponse({
-        "folder_path": folder_path or "/",
-        "total_images": total_images,
-        "scanned_images": scanned_images,
-        "unscanned_images": total_images - scanned_images,
-        "total_faces": total_faces,
-        "persons_count": len(persons_list),
-        "persons": persons_list,
-    })
+    except Exception as e:
+        return JsonResponse({"error": f"Error processing image: {str(e)}"}, status=500)
 
 
 @csrf_exempt

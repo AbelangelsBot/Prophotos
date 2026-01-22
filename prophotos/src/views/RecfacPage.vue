@@ -272,90 +272,202 @@
             </div>
           </div>
 
-          <!-- Tag Face (Admin) -->
+          <!-- Visages non taggés (Admin) -->
           <div class="card mb-4" v-if="isAdmin">
-            <div class="card-header bg-danger text-white">
-              <h5 class="mb-0">Tagger un Visage</h5>
+            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">Visages non taggés</h5>
+              <span v-if="untaggedFaces" class="badge bg-light text-dark">
+                {{ untaggedFaces.total_count }} visage(s)
+              </span>
             </div>
             <div class="card-body">
-              <div class="mb-3">
-                <label class="form-label">Face ID (UUID)</label>
-                <input
-                  v-model="tagFaceId"
-                  type="text"
-                  class="form-control"
-                  placeholder="ex: 123e4567-e89b-12d3-a456-426614174000"
-                >
-              </div>
-
-              <!-- Toggle between existing person or new person -->
-              <div class="mb-3">
-                <div class="form-check form-check-inline">
-                  <input
-                    class="form-check-input"
-                    type="radio"
-                    id="useExistingPerson"
-                    v-model="tagUseExisting"
-                    :value="true"
-                    @change="onTagUseExistingChange"
-                  >
-                  <label class="form-check-label" for="useExistingPerson">
-                    Personne existante
-                  </label>
-                </div>
-                <div class="form-check form-check-inline">
-                  <input
-                    class="form-check-input"
-                    type="radio"
-                    id="useNewPerson"
-                    v-model="tagUseExisting"
-                    :value="false"
-                  >
-                  <label class="form-check-label" for="useNewPerson">
-                    Nouvelle personne
-                  </label>
-                </div>
-              </div>
-
-              <!-- Select existing person -->
-              <div v-if="tagUseExisting" class="mb-3">
-                <label class="form-label">Sélectionner une personne</label>
-                <div v-if="loading && tagPersonsList.length === 0" class="text-center py-3">
-                  <span class="spinner-border spinner-border-sm me-2"></span>
-                  Chargement des personnes...
-                </div>
-                <div v-else-if="tagPersonsList.length === 0" class="alert alert-info">
-                  Aucune personne enregistrée pour le moment. Créez-en une nouvelle ci-dessous.
-                </div>
-                <select v-else v-model="tagPersonName" class="form-select">
-                  <option value="">-- Choisir une personne --</option>
-                  <option v-for="person in tagPersonsList" :key="person.name" :value="person.name">
-                    {{ person.name }} ({{ person.faces_count }} visage(s))
-                  </option>
-                </select>
-              </div>
-
-              <!-- Input new person name -->
-              <div v-else class="mb-3">
-                <label class="form-label">Nom de la nouvelle personne</label>
-                <input
-                  v-model="tagPersonName"
-                  type="text"
-                  class="form-control"
-                  placeholder="ex: John Doe"
-                >
-              </div>
-
-              <button @click="tagFace" class="btn btn-danger" :disabled="loading || !tagFaceId || !tagPersonName">
-                <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
-                Tagger le visage
+              <button @click="loadUntaggedFaces" class="btn btn-danger mb-3" :disabled="loadingUntagged">
+                <span v-if="loadingUntagged" class="spinner-border spinner-border-sm me-2"></span>
+                {{ untaggedFaces ? 'Rafraîchir' : 'Charger les visages non taggés' }}
               </button>
-              <div v-if="tagResult" class="mt-3">
-                <div class="alert alert-success">
-                  <strong>Visage tagué avec succès !</strong><br>
-                  Face ID: {{ tagResult.face_id }}<br>
-                  Personne: {{ tagResult.person_name || 'Non tagué' }}
+
+              <div v-if="untaggedFaces && untaggedFaces.faces.length > 0">
+                <!-- Pagination -->
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <small class="text-muted">
+                    Page {{ untaggedFaces.page }} / {{ untaggedFaces.total_pages }}
+                  </small>
+                  <div class="btn-group btn-group-sm">
+                    <button
+                      class="btn btn-outline-secondary"
+                      @click="loadUntaggedFaces(untaggedFaces.page - 1)"
+                      :disabled="untaggedFaces.page <= 1 || loadingUntagged"
+                    >
+                      &laquo; Précédent
+                    </button>
+                    <button
+                      class="btn btn-outline-secondary"
+                      @click="loadUntaggedFaces(untaggedFaces.page + 1)"
+                      :disabled="untaggedFaces.page >= untaggedFaces.total_pages || loadingUntagged"
+                    >
+                      Suivant &raquo;
+                    </button>
+                  </div>
                 </div>
+
+                <!-- Liste des visages -->
+                <div class="row g-3">
+                  <div
+                    v-for="face in untaggedFaces.faces"
+                    :key="face.face_id"
+                    class="col-md-6 col-lg-4"
+                  >
+                    <div class="card face-card-untagged" :style="{ borderColor: getUntaggedFaceColor(face.face_id) }">
+                      <div class="card-body">
+                        <!-- Header avec aperçu -->
+                        <div class="face-header-untagged mb-3">
+                          <!-- Thumbnail du visage -->
+                          <div
+                            class="face-thumbnail-untagged"
+                            :style="{ borderColor: getUntaggedFaceColor(face.face_id) }"
+                          >
+                            <img
+                              v-if="face.thumbnail"
+                              :src="face.thumbnail"
+                              alt="Visage"
+                              class="face-img"
+                            />
+                            <div v-else class="face-placeholder">
+                              <span v-if="face.loadingThumb" class="spinner-border spinner-border-sm"></span>
+                              <span v-else @click="loadFaceThumbnail(face)" class="load-thumb-btn">
+                                Charger
+                              </span>
+                            </div>
+                          </div>
+
+                          <!-- Info -->
+                          <div class="face-info-untagged">
+                            <p class="mb-1 small text-muted text-truncate" :title="face.image_path">
+                              {{ face.image_path }}
+                            </p>
+                            <span class="badge bg-secondary">{{ Math.round(face.det_score * 100) }}%</span>
+                          </div>
+                        </div>
+
+                        <!-- Toggle: Personne existante ou nouvelle -->
+                        <div class="btn-group btn-group-sm w-100 mb-2" role="group">
+                          <input
+                            type="radio"
+                            class="btn-check"
+                            :id="'useExisting' + face.face_id"
+                            :name="'tagMode' + face.face_id"
+                            v-model="face.useExisting"
+                            :value="true"
+                            @change="onUntaggedModeChange(face)"
+                          />
+                          <label class="btn btn-outline-secondary" :for="'useExisting' + face.face_id">
+                            <small>Existante</small>
+                          </label>
+
+                          <input
+                            type="radio"
+                            class="btn-check"
+                            :id="'useNew' + face.face_id"
+                            :name="'tagMode' + face.face_id"
+                            v-model="face.useExisting"
+                            :value="false"
+                          />
+                          <label class="btn btn-outline-secondary" :for="'useNew' + face.face_id">
+                            <small>Nouvelle</small>
+                          </label>
+                        </div>
+
+                        <!-- Select existing person -->
+                        <div v-if="face.useExisting" class="mb-2">
+                          <select v-model="face.newTagName" class="form-select form-select-sm">
+                            <option value="">-- Choisir --</option>
+                            <option v-for="person in tagPersonsList" :key="person.name" :value="person.name">
+                              {{ person.name }}
+                            </option>
+                          </select>
+                        </div>
+
+                        <!-- Input new person -->
+                        <div v-else class="mb-2">
+                          <input
+                            v-model="face.newTagName"
+                            type="text"
+                            class="form-control form-control-sm"
+                            placeholder="Nom de la personne"
+                            @keyup.enter="tagUntaggedFace(face)"
+                          />
+                        </div>
+
+                        <!-- Buttons -->
+                        <div class="d-flex gap-2">
+                          <button
+                            @click="tagUntaggedFace(face)"
+                            class="btn btn-success btn-sm flex-grow-1"
+                            :disabled="!face.newTagName || face.isTagging"
+                          >
+                            {{ face.isTagging ? '...' : 'Tagger' }}
+                          </button>
+                          <button
+                            @click="deleteUntaggedFace(face)"
+                            class="btn btn-outline-danger btn-sm"
+                            :disabled="face.isDeleting"
+                            title="Supprimer ce visage"
+                          >
+                            <span v-if="face.isDeleting" class="spinner-border spinner-border-sm"></span>
+                            <span v-else>&times;</span>
+                          </button>
+                        </div>
+
+                        <!-- Auto-tag similar checkbox -->
+                        <div class="form-check form-check-sm mt-2">
+                          <input
+                            v-model="face.autoTagSimilar"
+                            type="checkbox"
+                            class="form-check-input"
+                            :id="'autoTag' + face.face_id"
+                          />
+                          <label class="form-check-label small" :for="'autoTag' + face.face_id">
+                            Auto-tagger similaires
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pagination bottom -->
+                <div class="d-flex justify-content-center mt-3" v-if="untaggedFaces.total_pages > 1">
+                  <div class="btn-group btn-group-sm">
+                    <button
+                      class="btn btn-outline-secondary"
+                      @click="loadUntaggedFaces(untaggedFaces.page - 1)"
+                      :disabled="untaggedFaces.page <= 1 || loadingUntagged"
+                    >
+                      &laquo;
+                    </button>
+                    <button
+                      v-for="p in visiblePages"
+                      :key="p"
+                      class="btn"
+                      :class="p === untaggedFaces.page ? 'btn-secondary' : 'btn-outline-secondary'"
+                      @click="loadUntaggedFaces(p)"
+                      :disabled="loadingUntagged"
+                    >
+                      {{ p }}
+                    </button>
+                    <button
+                      class="btn btn-outline-secondary"
+                      @click="loadUntaggedFaces(untaggedFaces.page + 1)"
+                      :disabled="untaggedFaces.page >= untaggedFaces.total_pages || loadingUntagged"
+                    >
+                      &raquo;
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else-if="untaggedFaces && untaggedFaces.faces.length === 0" class="alert alert-success">
+                Tous les visages sont taggés !
               </div>
             </div>
           </div>
@@ -527,13 +639,6 @@ export default {
       // List Persons
       persons: null,
 
-      // Tag Face
-      tagFaceId: "",
-      tagPersonName: "",
-      tagResult: null,
-      tagUseExisting: true,
-      tagPersonsList: [],
-
       // Test Vectorization
       testFile: null,
       testResult: null,
@@ -550,7 +655,26 @@ export default {
       scanProgress: null,
       scanComplete: null,
       eventSource: null,
+
+      // Untagged Faces
+      untaggedFaces: null,
+      loadingUntagged: false,
+      tagPersonsList: [],
     };
+  },
+  computed: {
+    visiblePages() {
+      if (!this.untaggedFaces) return [];
+      const current = this.untaggedFaces.page;
+      const total = this.untaggedFaces.total_pages;
+      const pages = [];
+      const range = 2;
+
+      for (let i = Math.max(1, current - range); i <= Math.min(total, current + range); i++) {
+        pages.push(i);
+      }
+      return pages;
+    },
   },
   async created() {
     await this.verifyToken();
@@ -711,68 +835,135 @@ export default {
       }
     },
 
-    onTagUseExistingChange() {
-      // Charger la liste des personnes si elle n'est pas déjà chargée
-      if (this.tagUseExisting && this.tagPersonsList.length === 0) {
-        this.loadTagPersonsList();
+    // Untagged faces methods
+    async loadUntaggedFaces(page = 1) {
+      this.loadingUntagged = true;
+      this.error = null;
+
+      try {
+        const response = await fetch(
+          `${RECFAC_API_URL}/recfac/faces/untagged/?page=${page}&limit=12`,
+          {
+            headers: { Authorization: `Bearer ${this.token}` },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          // Ajouter des propriétés pour l'UI
+          data.faces = data.faces.map(face => ({
+            ...face,
+            useExisting: true,
+            newTagName: "",
+            autoTagSimilar: true,
+            isTagging: false,
+            isDeleting: false,
+            thumbnail: null,
+            loadingThumb: false,
+          }));
+          this.untaggedFaces = data;
+
+          // Charger la liste des personnes si pas déjà fait
+          if (this.tagPersonsList.length === 0) {
+            await this.loadTagPersonsList();
+          }
+
+          // Charger automatiquement les thumbnails
+          this.untaggedFaces.faces.forEach(face => {
+            this.loadFaceThumbnail(face);
+          });
+        } else {
+          const data = await response.json();
+          this.error = data.error || "Erreur lors du chargement";
+        }
+      } catch (error) {
+        this.error = error.message;
+      } finally {
+        this.loadingUntagged = false;
       }
-      // Réinitialiser le nom de personne lors du changement de mode
-      this.tagPersonName = "";
     },
 
     async loadTagPersonsList() {
-      this.loading = true;
-      this.error = null;
-
       try {
         const response = await fetch(`${RECFAC_API_URL}/recfac/persons/`);
         if (response.ok) {
           const data = await response.json();
           this.tagPersonsList = data.persons || [];
-        } else {
-          this.error = "Erreur lors du chargement des personnes";
         }
       } catch (error) {
-        this.error = error.message;
-      } finally {
-        this.loading = false;
+        console.error("Erreur chargement personnes:", error);
       }
     },
 
-    async tagFace() {
-      if (!this.token) {
-        this.error = "Vous devez être connecté";
-        return;
-      }
+    async loadFaceThumbnail(face) {
+      if (face.thumbnail || face.loadingThumb) return;
 
-      this.loading = true;
-      this.error = null;
-      this.tagResult = null;
-
+      face.loadingThumb = true;
       try {
-        const response = await fetch(`${RECFAC_API_URL}/recfac/face/tag/`, {
+        const response = await fetch(
+          `${RECFAC_API_URL}/recfac/face/image/?face_id=${face.face_id}`,
+          {
+            headers: { Authorization: `Bearer ${this.token}` },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          face.thumbnail = data.image;
+        }
+      } catch (error) {
+        console.error("Erreur chargement thumbnail:", error);
+      } finally {
+        face.loadingThumb = false;
+      }
+    },
+
+    onUntaggedModeChange(face) {
+      face.newTagName = "";
+    },
+
+    async tagUntaggedFace(face) {
+      if (!face.newTagName || !this.token) return;
+
+      face.isTagging = true;
+      try {
+        const endpoint = face.autoTagSimilar
+          ? `${RECFAC_API_URL}/recfac/face/tag-with-similarity/`
+          : `${RECFAC_API_URL}/recfac/face/tag/`;
+
+        const body = {
+          face_id: face.face_id,
+          person_name: face.newTagName.trim(),
+        };
+
+        if (face.autoTagSimilar) {
+          body.similarity_threshold = 0.6;
+        }
+
+        const response = await fetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${this.token}`,
           },
-          body: JSON.stringify({
-            face_id: this.tagFaceId,
-            person_name: this.tagPersonName,
-          }),
+          body: JSON.stringify(body),
         });
 
         if (response.ok) {
-          this.tagResult = await response.json();
+          const result = await response.json();
 
           // Si c'était une nouvelle personne, recharger la liste
-          if (!this.tagUseExisting && this.tagPersonsList.length > 0) {
+          if (!face.useExisting) {
             await this.loadTagPersonsList();
           }
 
-          // Réinitialiser les champs
-          this.tagFaceId = "";
-          this.tagPersonName = "";
+          // Message de succès
+          if (face.autoTagSimilar && result.similar_faces_tagged > 0) {
+            alert(`Tag ajouté! ${result.similar_faces_tagged} visage(s) similaire(s) aussi taggé(s).`);
+          }
+
+          // Recharger la liste des visages non taggés
+          await this.loadUntaggedFaces(this.untaggedFaces.page);
         } else {
           const data = await response.json();
           this.error = data.error || "Erreur lors du tagging";
@@ -780,8 +971,49 @@ export default {
       } catch (error) {
         this.error = error.message;
       } finally {
-        this.loading = false;
+        face.isTagging = false;
       }
+    },
+
+    async deleteUntaggedFace(face) {
+      if (!confirm("Supprimer ce visage ? Cette action est irréversible.")) {
+        return;
+      }
+
+      face.isDeleting = true;
+      try {
+        const response = await fetch(`${RECFAC_API_URL}/recfac/face/delete/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.token}`,
+          },
+          body: JSON.stringify({ face_id: face.face_id }),
+        });
+
+        if (response.ok) {
+          // Recharger la liste
+          await this.loadUntaggedFaces(this.untaggedFaces.page);
+        } else {
+          const data = await response.json();
+          this.error = data.error || "Erreur lors de la suppression";
+        }
+      } catch (error) {
+        this.error = error.message;
+      } finally {
+        face.isDeleting = false;
+      }
+    },
+
+    getUntaggedFaceColor(faceId) {
+      // Générer une couleur pastel basée sur le face_id
+      const colors = [
+        "#7eb8a2", "#b8a07e", "#8fa7b8", "#b89e8f",
+        "#9ab88f", "#a78fb8", "#b8a58f", "#8fb8b3",
+        "#b88f9a", "#8f9eb8", "#b8b08f", "#9b8fb8",
+      ];
+      const hash = faceId.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+      return colors[hash % colors.length];
     },
 
     onTestFileSelected(event) {
@@ -1039,5 +1271,59 @@ export default {
 
 .card-header h5 {
   margin: 0;
+}
+
+/* Untagged faces cards */
+.face-card-untagged {
+  border-width: 2px;
+  transition: all 0.2s ease;
+}
+
+.face-card-untagged:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.face-header-untagged {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.face-thumbnail-untagged {
+  flex-shrink: 0;
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 3px solid;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  background-color: #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.face-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.face-placeholder {
+  font-size: 0.7rem;
+  color: #666;
+  text-align: center;
+}
+
+.load-thumb-btn {
+  cursor: pointer;
+  color: #007bff;
+  text-decoration: underline;
+}
+
+.face-info-untagged {
+  flex: 1;
+  min-width: 0;
 }
 </style>
