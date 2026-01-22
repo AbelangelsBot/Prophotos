@@ -174,19 +174,45 @@
                         :key="face.face_id"
                         class="col-md-6 col-lg-4"
                       >
-                        <div class="card" :class="{ 'border-warning': hoveredFaceIndex === index }">
+                        <div
+                          class="card face-card"
+                          :class="{ 'border-warning': hoveredFaceIndex === index }"
+                          :style="{ borderColor: getFaceColor(index) }"
+                        >
                           <div class="card-body">
-                            <h6 class="card-title">
-                              Visage #{{ index + 1 }}
-                              <span class="badge bg-secondary float-end">{{ Math.round(face.det_score * 100) }}%</span>
-                            </h6>
+                            <!-- Header avec apercu du visage -->
+                            <div class="face-header mb-3">
+                              <!-- Apercu du visage (crop) -->
+                              <div
+                                class="face-thumbnail"
+                                :style="{ borderColor: getFaceColor(index) }"
+                              >
+                                <canvas
+                                  :ref="'faceCrop' + index"
+                                  class="face-crop-canvas"
+                                ></canvas>
+                              </div>
 
-                            <p v-if="face.person_name" class="text-success mb-2">
-                              <strong>Tag actuel:</strong> {{ face.person_name }}
-                            </p>
-                            <p v-else class="text-muted mb-2">
-                              <em>Non taggé</em>
-                            </p>
+                              <!-- Info du visage -->
+                              <div class="face-info">
+                                <h6 class="card-title mb-1">
+                                  <span
+                                    class="face-number"
+                                    :style="{ backgroundColor: getFaceColor(index), color: getContrastColor(getFaceColor(index)) }"
+                                  >
+                                    #{{ index + 1 }}
+                                  </span>
+                                  <span class="badge bg-secondary ms-2">{{ Math.round(face.det_score * 100) }}%</span>
+                                </h6>
+
+                                <p v-if="face.person_name" class="text-success mb-0 small">
+                                  <strong>{{ face.person_name }}</strong>
+                                </p>
+                                <p v-else class="text-muted mb-0 small">
+                                  <em>Non taggé</em>
+                                </p>
+                              </div>
+                            </div>
 
                             <!-- Toggle: Personne existante ou nouvelle -->
                             <div class="btn-group btn-group-sm w-100 mb-2" role="group">
@@ -611,27 +637,146 @@ export default {
         this.recfacData.faces.forEach((face, index) => {
           this.drawFaceBox(ctx, face, index, false);
         });
+
+        // Generer les crops des visages
+        this.$nextTick(() => {
+          this.generateFaceCrops();
+        });
       };
+    },
+
+    // Genere les aperçus (crops) de chaque visage
+    generateFaceCrops() {
+      if (!this.canvasImage || !this.recfacData || !this.recfacData.faces) {
+        return;
+      }
+
+      this.recfacData.faces.forEach((face, index) => {
+        const refName = "faceCrop" + index;
+        const canvasRefs = this.$refs[refName];
+        if (!canvasRefs || canvasRefs.length === 0) return;
+
+        const cropCanvas = canvasRefs[0];
+        const ctx = cropCanvas.getContext("2d");
+
+        const [x1, y1, x2, y2] = face.bbox;
+
+        // Ajouter un peu de marge autour du visage (20%)
+        const width = x2 - x1;
+        const height = y2 - y1;
+        const margin = 0.2;
+
+        const cropX = Math.max(0, x1 - width * margin);
+        const cropY = Math.max(0, y1 - height * margin);
+        const cropWidth = Math.min(this.canvasImage.width - cropX, width * (1 + margin * 2));
+        const cropHeight = Math.min(this.canvasImage.height - cropY, height * (1 + margin * 2));
+
+        // Taille du canvas de sortie (carre 80x80)
+        const outputSize = 80;
+        cropCanvas.width = outputSize;
+        cropCanvas.height = outputSize;
+
+        // Calculer le ratio pour garder les proportions
+        const scale = Math.min(outputSize / cropWidth, outputSize / cropHeight);
+        const scaledWidth = cropWidth * scale;
+        const scaledHeight = cropHeight * scale;
+        const offsetX = (outputSize - scaledWidth) / 2;
+        const offsetY = (outputSize - scaledHeight) / 2;
+
+        // Fond gris
+        ctx.fillStyle = "#f0f0f0";
+        ctx.fillRect(0, 0, outputSize, outputSize);
+
+        // Dessiner le crop du visage
+        ctx.drawImage(
+          this.canvasImage,
+          cropX, cropY, cropWidth, cropHeight,
+          offsetX, offsetY, scaledWidth, scaledHeight
+        );
+      });
+    },
+
+    // Palette de couleurs pastel douces pour les visages
+    getFaceColor(index) {
+      const colors = [
+        "#7eb8a2", // Vert sauge
+        "#b8a07e", // Taupe doux
+        "#8fa7b8", // Bleu gris
+        "#b89e8f", // Beige rose
+        "#9ab88f", // Vert olive clair
+        "#a78fb8", // Lavande
+        "#b8a58f", // Sable
+        "#8fb8b3", // Vert d'eau
+        "#b88f9a", // Vieux rose
+        "#8f9eb8", // Bleu ardoise
+        "#b8b08f", // Kaki clair
+        "#9b8fb8", // Mauve doux
+      ];
+      return colors[index % colors.length];
     },
 
     drawFaceBox(ctx, face, index, isHovered) {
       const [x1, y1, x2, y2] = face.bbox;
+      const canvas = this.$refs.facesCanvas;
+
+      // Calculer les tailles proportionnelles a l'image
+      const imageSize = Math.max(canvas.width, canvas.height);
+      const scaleFactor = imageSize / 800; // Base: 800px
+
+      // Epaisseur du trait proportionnelle (min 2, max 8)
+      const baseLineWidth = Math.max(2, Math.min(8, Math.round(3 * scaleFactor)));
+      const lineWidth = isHovered ? baseLineWidth + 2 : baseLineWidth;
+
+      // Couleur du visage (ou couleur hover si survole)
+      const faceColor = isHovered ? "#6b8e7a" : this.getFaceColor(index);
 
       // Draw rectangle
-      ctx.strokeStyle = isHovered ? "#ffc107" : "#00ff00";
-      ctx.lineWidth = isHovered ? 4 : 2;
+      ctx.strokeStyle = faceColor;
+      ctx.lineWidth = lineWidth;
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
-      // Draw label
-      const label = face.person_name || `Visage #${index + 1}`;
-      ctx.font = isHovered ? "bold 16px Arial" : "14px Arial";
-      ctx.fillStyle = isHovered ? "#ffc107" : "#00ff00";
+      // Afficher le nom seulement si la personne est taggee
+      if (face.person_name) {
+        const baseFontSize = Math.max(14, Math.min(48, Math.round(18 * scaleFactor)));
+        const fontSize = isHovered ? baseFontSize + 4 : baseFontSize;
+        const padding = Math.round(6 * scaleFactor);
 
-      const textWidth = ctx.measureText(label).width;
-      ctx.fillRect(x1, y1 - 22, textWidth + 8, 22);
+        // Ombre pour meilleure lisibilite
+        ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+        ctx.shadowBlur = 3;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
 
-      ctx.fillStyle = "#000";
-      ctx.fillText(label, x1 + 4, y1 - 6);
+        ctx.font = `bold ${fontSize}px Arial`;
+        const textWidth = ctx.measureText(face.person_name).width;
+        const labelHeight = fontSize + padding * 2;
+
+        // Fond du label (couleur du visage avec transparence)
+        ctx.fillStyle = faceColor;
+        ctx.fillRect(x1, y1 - labelHeight - 2, textWidth + padding * 2, labelHeight);
+
+        // Reset shadow pour le texte
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+
+        // Texte
+        const textColor = this.getContrastColor(faceColor);
+        ctx.fillStyle = textColor;
+        ctx.fillText(face.person_name, x1 + padding, y1 - padding - 4);
+      }
+    },
+
+    // Calcule si le texte doit etre noir ou blanc selon la couleur de fond
+    getContrastColor(hexColor) {
+      const hex = hexColor.replace("#", "");
+      const r = parseInt(hex.substr(0, 2), 16);
+      const g = parseInt(hex.substr(2, 2), 16);
+      const b = parseInt(hex.substr(4, 2), 16);
+      // Formule de luminosite
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.5 ? "#000000" : "#ffffff";
     },
 
     onCanvasHover(event) {
@@ -932,6 +1077,52 @@ export default {
 
 .recfac-content {
   padding-left: 1.75rem;
+}
+
+/* Face card avec apercu */
+.face-card {
+  border-width: 2px;
+  transition: all 0.2s ease;
+}
+
+.face-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.face-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.face-thumbnail {
+  flex-shrink: 0;
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 3px solid;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.face-crop-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.face-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.face-number {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 0.9rem;
 }
 
 /* Responsive: ajuster les boutons sur écrans moyens */
