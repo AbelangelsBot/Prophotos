@@ -392,9 +392,15 @@ export default {
       const folderPath = pathParts.join("/");
 
       try {
-        const response = await axios.get(`${FILES_API_URL}/files/`, {
+        // Inclure le token si connecte pour obtenir des miniatures de meilleure qualite
+        const config = {
           params: { path: folderPath },
-        });
+        };
+        if (this.token) {
+          config.headers = { Authorization: `Bearer ${this.token}` };
+        }
+
+        const response = await axios.get(`${FILES_API_URL}/files/`, config);
 
         // Filtrer uniquement les images (pas les dossiers)
         const PHOTO_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
@@ -843,8 +849,12 @@ export default {
     },
 
     async loadPersonsList() {
+      if (!this.token) return;
+
       try {
-        const response = await axios.get(`${RECFAC_API_URL}/recfac/persons/`);
+        const response = await axios.get(`${RECFAC_API_URL}/recfac/persons/`, {
+          headers: { Authorization: `Bearer ${this.token}` },
+        });
         this.personsList = response.data.persons || [];
       } catch (error) {
         console.error("Erreur lors du chargement des personnes:", error);

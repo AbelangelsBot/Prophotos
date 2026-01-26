@@ -30,12 +30,34 @@ def hello(request):
 
 @csrf_exempt
 def get_users(request):
-    users = User.objects.all().values('id', 'username', 'email', 'token', 'admin')
+    """
+    Liste les utilisateurs. Requiert un token admin.
+    GET /users/
+    """
+    # Vérification du token admin
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse({"error": "Token manquant."}, status=401)
+
+    token = auth_header.split(" ")[1]
+    try:
+        payload = verify_token(token)
+        if not payload.get("admin"):
+            return JsonResponse({"error": "Accès réservé aux administrateurs."}, status=403)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=401)
+
+    # Ne pas exposer les tokens - seulement les infos de base
+    users = User.objects.all().values('id', 'username', 'email', 'admin', 'verifie', 'created_at')
     return JsonResponse(list(users), safe=False)
 
 @csrf_exempt
 def get_current_user(request):
-    token = request.headers.get("Authorization", "").split(" ")[1]
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse({"error": "Token manquant."}, status=401)
+
+    token = auth_header.split(" ")[1]
     try:
         payload = verify_token(token)
         user = User.objects.get(id=payload["user_id"])

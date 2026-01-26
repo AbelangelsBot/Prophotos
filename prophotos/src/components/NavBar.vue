@@ -24,7 +24,7 @@
           <li class="nav-item" v-if="token">
             <router-link to="/personnes" class="nav-link">Personnes</router-link>
           </li>
-          <li class="nav-item">
+          <li class="nav-item" v-if="token && isAdmin">
             <router-link to="/recfac" class="nav-link">Reconnaissance Faciale</router-link>
           </li>
           <li class="nav-item" v-if="!token">
@@ -47,8 +47,9 @@ export default {
   name: "NavBar",
   data() {
     return {
-      token: localStorage.getItem("token") || null,  // récupère le token
+      token: localStorage.getItem("token") || null,
       username: "",
+      isAdmin: false,
     };
   },
   created() {
@@ -62,6 +63,7 @@ export default {
         this.verifyToken();
       } else {
         this.username = "";
+        this.isAdmin = false;
       }
     },
   },
@@ -77,7 +79,8 @@ export default {
         });
         const data = await response.json();
         if (response.ok) {
-          this.username = data.user.username; // payload renvoyé par ton backend
+          this.username = data.user.username;
+          this.isAdmin = data.user.admin || false;
         } else {
           // token invalide/expiré → logout
           this.logout();
@@ -92,6 +95,7 @@ export default {
       localStorage.removeItem("token");
       this.token = null;
       this.username = "";
+      this.isAdmin = false;
       this.$emit("update-token", null);
       this.$router.push("/login");
     },

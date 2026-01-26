@@ -127,19 +127,46 @@ def get_files(request):
         if not candidate.exists():
             return JsonResponse({"error": "Directory not found."}, status=404)
 
+        # Verifier si l'utilisateur est authentifie
+        is_authenticated = False
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            try:
+                verify_token(token)
+                is_authenticated = True
+            except Exception:
+                is_authenticated = False
+
         try:
             content = []
-            for item in candidate.iterdir():
-                img = None
-                if item.is_file() and item.suffix.lower() in [".png", ".jpg", ".jpeg", ".gif", ".webp"]:
-                    img = compress_and_encode_image(item, (300, 300), 55)
+            image_extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"]
 
-                content.append({
-                    "Name": item.name,
-                    "isDirectory": item.is_dir(),
-                    "Path": str(item.relative_to(root)),
-                    "Img": img,
-                })
+            for item in candidate.iterdir():
+                # Inclure uniquement les dossiers et les images
+                if item.is_dir():
+                    content.append({
+                        "Name": item.name,
+                        "isDirectory": True,
+                        "Path": str(item.relative_to(root)),
+                        "Img": None,
+                    })
+                elif item.is_file() and item.suffix.lower() in image_extensions:
+                    # Utiliser des miniatures de qualite differente selon l'authentification
+                    if is_authenticated:
+                        # Utilisateur connecte: miniatures de bonne qualite
+                        img = compress_and_encode_image(item, (300, 300), 55)
+                    else:
+                        # Invite: miniatures degradees (petites, floues, basse qualite)
+                        img = compress_and_encode_image_guest(item)
+
+                    content.append({
+                        "Name": item.name,
+                        "isDirectory": False,
+                        "Path": str(item.relative_to(root)),
+                        "Img": img,
+                    })
+                # Ignorer les autres fichiers (pdf, txt, etc.)
 
             return JsonResponse(content, safe=False)
 
@@ -476,6 +503,40 @@ def compress_and_encode_image(image_path, max_size=(400, 400), quality=65):
             img.thumbnail(max_size)
             buffer = BytesIO()
             img.convert("RGB").save(buffer, format="JPEG", quality=quality)
+            return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+    except Exception:
+        return None
+
+
+def compress_and_encode_image_guest(image_path):
+    """
+    Compresse et encode une image pour les invites (non connectes).
+    - Resolution tres reduite (150x150)
+    - Blur fort pour empecher la visualisation claire
+    - Qualite tres basse (25)
+    - Desaturation des couleurs
+    """
+    try:
+        with Image.open(image_path) as img:
+            # Resolution tres reduite
+            img.thumbnail((150, 150))
+
+            # Convertir en RGB pour le traitement
+            img = img.convert("RGB")
+
+            # Appliquer un blur fort
+            img = img.filter(ImageFilter.GaussianBlur(8))
+
+            # Reduire la saturation des couleurs
+            enhancer = ImageEnhance.Color(img)
+            img = enhancer.enhance(0.3)
+
+            # Reduire le contraste
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(0.7)
+
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=25)
             return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode()}"
     except Exception:
         return None

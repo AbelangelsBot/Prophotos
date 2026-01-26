@@ -500,7 +500,9 @@ export default {
 
       this.loadingPersons = true;
       try {
-        const response = await axios.get(`${RECFAC_API_URL}/recfac/persons/`);
+        const response = await axios.get(`${RECFAC_API_URL}/recfac/persons/`, {
+          headers: { Authorization: `Bearer ${this.token}` },
+        });
         this.persons = response.data.persons || [];
       } catch (error) {
         console.error("Error loading persons:", error);
@@ -598,6 +600,7 @@ export default {
         if (this.selectedPersons.length === 1) {
           const facesResponse = await axios.get(`${RECFAC_API_URL}/recfac/person/faces/`, {
             params: { name: this.selectedPersons[0] },
+            headers: { Authorization: `Bearer ${this.token}` },
           });
 
           const faces = facesResponse.data.faces || [];
@@ -608,7 +611,8 @@ export default {
             {
               names: this.selectedPersons,
               mode: this.searchMode,
-            }
+            },
+            { headers: { Authorization: `Bearer ${this.token}` } }
           );
 
           imagePaths = response.data.image_paths || [];

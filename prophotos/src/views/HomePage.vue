@@ -488,9 +488,16 @@ export default {
       try {
         this.directoryContent = [];
         this.charging = true;
-        const response = await axios.get(`${FILES_API_URL}/files/`, {
+
+        // Inclure le token si connecte pour obtenir des miniatures de meilleure qualite
+        const config = {
           params: { path: this.currentPathParam },
-        });
+        };
+        if (this.token) {
+          config.headers = { Authorization: `Bearer ${this.token}` };
+        }
+
+        const response = await axios.get(`${FILES_API_URL}/files/`, config);
 
         this.directoryContent = response.data;
       } catch (error) {

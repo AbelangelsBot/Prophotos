@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 import numpy as np
 from pathlib import Path
@@ -10,7 +11,22 @@ from django.conf import settings
 from django.db.models import Q
 
 from .models import Image, Face, Person
-from utils import verify_token, calculate_file_hash, get_image_dimensions
+from utils import calculate_file_hash, get_image_dimensions
+from .utils import (
+    verify_admin_token,
+    verify_user_token,
+    verify_admin_token_from_query,
+    parse_json_body,
+    validate_path_security,
+    is_image_file,
+    get_or_create_image_record,
+    create_faces_from_gpu_result,
+    mark_image_as_scanned,
+    parse_pagination_params,
+    paginate_response,
+    check_rate_limit,
+    IMAGE_EXTENSIONS,
+)
 
 
 ROOT_DIR = settings.FILES_ROOT_DIR
@@ -201,7 +217,6 @@ def _update_person_average_embedding(person_name):
 
 
 @csrf_exempt
-@csrf_exempt
 def check_health(request):
     """
     Vérifie l'état du service recfac et du GPU worker.
@@ -255,71 +270,36 @@ def scan_image(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
-
-    import json
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+    # Parser le body JSON
+    success, data = parse_json_body(request)
+    if not success:
+        return data
 
     relative_path = data.get("path", "")
     if not relative_path:
         return JsonResponse({"error": "Path is required."}, status=400)
 
-    # Construire le chemin absolu et vérifier la sécurité
-    root = Path(ROOT_DIR).resolve()
-    file_path = (root / str(relative_path).lstrip("/\\")).resolve()
-
-    try:
-        if not file_path.is_relative_to(root):
-            return JsonResponse({"error": "Invalid path."}, status=400)
-    except AttributeError:
-        if str(file_path).find(str(root)) != 0:
-            return JsonResponse({"error": "Invalid path."}, status=400)
+    # Valider et construire le chemin
+    is_valid, path_result = validate_path_security(relative_path)
+    if not is_valid:
+        return JsonResponse({"error": path_result}, status=400)
+    file_path = path_result
 
     if not file_path.exists() or not file_path.is_file():
         return JsonResponse({"error": "File not found."}, status=404)
 
     # Vérifier que c'est une image
-    if file_path.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+    if not is_image_file(file_path):
         return JsonResponse({"error": "Not an image file."}, status=400)
 
-    # Calculer le hash du fichier
-    try:
-        file_hash = calculate_file_hash(file_path)
-        file_size = file_path.stat().st_size
-        width, height = get_image_dimensions(file_path)
-    except Exception as e:
-        return JsonResponse({"error": f"Error reading file: {str(e)}"}, status=500)
-
-    # Chercher ou créer l'image dans la DB
-    image, created = Image.objects.get_or_create(
-        file_hash=file_hash,
-        defaults={
-            'path': relative_path,
-            'filename': file_path.name,
-            'file_size': file_size,
-            'width': width,
-            'height': height,
-        }
-    )
-
-    # Si l'image existe mais le chemin a changé, mettre à jour
-    if not created and image.path != relative_path:
-        image.path = relative_path
-        image.filename = file_path.name
-        image.save()
+    # Récupérer ou créer l'enregistrement image
+    image, created, error = get_or_create_image_record(file_path, relative_path)
+    if error:
+        return JsonResponse({"error": error}, status=500)
 
     # Si déjà scannée, retourner les résultats existants
     if image.scanned:
@@ -362,24 +342,10 @@ def scan_image(request):
         return JsonResponse({"error": "Invalid response from GPU worker."}, status=502)
 
     # Sauvegarder les faces détectées
-    faces_created = []
-    for face_data in faces_data:
-        face = Face.objects.create(
-            image=image,
-            bbox_x1=face_data['bbox'][0],
-            bbox_y1=face_data['bbox'][1],
-            bbox_x2=face_data['bbox'][2],
-            bbox_y2=face_data['bbox'][3],
-            det_score=face_data['det_score'],
-            embedding=face_data['embedding'],
-        )
-        faces_created.append(str(face.id))
+    faces_created = create_faces_from_gpu_result(image, faces_data)
 
     # Marquer l'image comme scannée
-    image.scanned = True
-    image.scan_date = datetime.now()
-    image.faces_count = len(faces_created)
-    image.save()
+    mark_image_as_scanned(image, len(faces_created))
 
     return JsonResponse({
         "image_id": str(image.id),
@@ -400,23 +366,14 @@ def scan_multiple(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
-
-    import json
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+    # Parser le body JSON
+    success, data = parse_json_body(request)
+    if not success:
+        return data
 
     paths = data.get("paths", [])
     if not paths or not isinstance(paths, list):
@@ -426,7 +383,6 @@ def scan_multiple(request):
     if not GPU_WORKER_URL:
         return JsonResponse({"error": "GPU_WORKER_URL not configured."}, status=503)
 
-    root = Path(ROOT_DIR).resolve()
     results = {
         "scanned": [],
         "already_scanned": [],
@@ -438,50 +394,28 @@ def scan_multiple(request):
         if not relative_path:
             continue
 
-        # Construire le chemin absolu et vérifier la sécurité
-        file_path = (root / str(relative_path).lstrip("/\\")).resolve()
-
-        try:
-            if not file_path.is_relative_to(root):
-                results["errors"].append({"path": relative_path, "error": "Invalid path"})
-                continue
-        except AttributeError:
-            if str(file_path).find(str(root)) != 0:
-                results["errors"].append({"path": relative_path, "error": "Invalid path"})
-                continue
+        # Valider et construire le chemin
+        is_valid, path_result = validate_path_security(relative_path)
+        if not is_valid:
+            results["errors"].append({"path": relative_path, "error": "Invalid path"})
+            continue
+        file_path = path_result
 
         if not file_path.exists() or not file_path.is_file():
             results["errors"].append({"path": relative_path, "error": "File not found"})
             continue
 
         # Vérifier que c'est une image
-        if file_path.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+        if not is_image_file(file_path):
             results["errors"].append({"path": relative_path, "error": "Not an image file"})
             continue
 
         try:
-            # Calculer le hash du fichier
-            file_hash = calculate_file_hash(file_path)
-            file_size = file_path.stat().st_size
-            width, height = get_image_dimensions(file_path)
-
-            # Chercher ou créer l'image dans la DB
-            image, created = Image.objects.get_or_create(
-                file_hash=file_hash,
-                defaults={
-                    'path': relative_path,
-                    'filename': file_path.name,
-                    'file_size': file_size,
-                    'width': width,
-                    'height': height,
-                }
-            )
-
-            # Si l'image existe mais le chemin a changé, mettre à jour
-            if not created and image.path != relative_path:
-                image.path = relative_path
-                image.filename = file_path.name
-                image.save()
+            # Récupérer ou créer l'enregistrement image
+            image, created, error = get_or_create_image_record(file_path, relative_path)
+            if error:
+                results["errors"].append({"path": relative_path, "error": error})
+                continue
 
             # Si déjà scannée, skip
             if image.scanned:
@@ -511,28 +445,16 @@ def scan_multiple(request):
             faces_data = gpu_result.get("results", [])
 
             # Sauvegarder les faces
-            for face_data in faces_data:
-                Face.objects.create(
-                    image=image,
-                    bbox_x1=face_data['bbox'][0],
-                    bbox_y1=face_data['bbox'][1],
-                    bbox_x2=face_data['bbox'][2],
-                    bbox_y2=face_data['bbox'][3],
-                    det_score=face_data['det_score'],
-                    embedding=face_data['embedding'],
-                )
+            faces_created = create_faces_from_gpu_result(image, faces_data)
 
             # Marquer comme scanné
-            image.scanned = True
-            image.scan_date = datetime.now()
-            image.faces_count = len(faces_data)
-            image.save()
+            mark_image_as_scanned(image, len(faces_created))
 
             results["scanned"].append({
                 "path": relative_path,
-                "faces_count": len(faces_data)
+                "faces_count": len(faces_created)
             })
-            results["total_faces"] += len(faces_data)
+            results["total_faces"] += len(faces_created)
 
         except requests.RequestException as exc:
             results["errors"].append({"path": relative_path, "error": f"GPU worker error: {str(exc)}"})
@@ -561,22 +483,15 @@ def search_face(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
-
-    token = auth_header.split(" ")[1]
-    try:
-        verify_token(token)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
+    success, result = verify_user_token(request)
+    if not success:
+        return result
 
     threshold = float(request.GET.get('threshold', '0.6'))
     query_embedding = None
 
     # Cas 1: Recherche par face_id
     if request.content_type == 'application/json':
-        import json
         try:
             data = json.loads(request.body)
             face_id = data.get('face_id')
@@ -666,23 +581,14 @@ def tag_face(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
-
-    import json
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+    # Parser le body JSON
+    success, data = parse_json_body(request)
+    if not success:
+        return data
 
     face_id = data.get("face_id")
     person_name = _normalize_person_name(data.get("person_name", ""))
@@ -728,23 +634,14 @@ def tag_face_with_similarity(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
-
-    import json
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+    # Parser le body JSON
+    success, data = parse_json_body(request)
+    if not success:
+        return data
 
     face_id = data.get("face_id")
     person_name = _normalize_person_name(data.get("person_name", ""))
@@ -808,9 +705,15 @@ def list_persons(request):
     """
     Liste toutes les personnes (person_name uniques).
     GET /recfac/persons/
+    Requiert authentification utilisateur.
     """
     if request.method != "GET":
         return JsonResponse({"error": "Method not allowed."}, status=405)
+
+    # Vérification du token utilisateur
+    success, result = verify_user_token(request)
+    if not success:
+        return result
 
     # Récupérer les person_name uniques (non null et non vides)
     # Utiliser annotate pour grouper et compter directement
@@ -863,15 +766,21 @@ def get_multiple_persons_faces(request):
     Modes:
     - "union" (default): retourne les images contenant AU MOINS UNE des personnes
     - "intersection": retourne les images contenant TOUTES les personnes
+
+    Requiert authentification utilisateur.
     """
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
-    import json
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+    # Vérification du token utilisateur
+    success, result = verify_user_token(request)
+    if not success:
+        return result
+
+    # Parser le body JSON
+    success, data = parse_json_body(request)
+    if not success:
+        return data
 
     names = data.get("names", [])
     mode = data.get("mode", "union")  # "union" ou "intersection"
@@ -943,9 +852,15 @@ def get_person_faces(request):
     """
     Retourne toutes les faces d'une personne.
     GET /recfac/person/faces/?name=John%20Doe
+    Requiert authentification utilisateur.
     """
     if request.method != "GET":
         return JsonResponse({"error": "Method not allowed."}, status=405)
+
+    # Vérification du token utilisateur
+    success, result = verify_user_token(request)
+    if not success:
+        return result
 
     person_name = request.GET.get('name', '').strip()
     if not person_name:
@@ -981,15 +896,9 @@ def get_image_details(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
-
-    token = auth_header.split(" ")[1]
-    try:
-        verify_token(token)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
+    success, result = verify_user_token(request)
+    if not success:
+        return result
 
     relative_path = request.GET.get('path', '').strip()
     if not relative_path:
@@ -1057,32 +966,12 @@ def get_untagged_faces(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
-
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
     # Pagination
-    try:
-        page = int(request.GET.get('page', 1))
-        limit = int(request.GET.get('limit', 20))
-    except ValueError:
-        page = 1
-        limit = 20
-
-    if page < 1:
-        page = 1
-    if limit < 1 or limit > 100:
-        limit = 20
-
-    offset = (page - 1) * limit
+    page, limit, offset = parse_pagination_params(request)
 
     # Récupérer les visages non taggés
     untagged_faces = Face.objects.filter(
@@ -1105,11 +994,9 @@ def get_untagged_faces(request):
         }
         faces_list.append(face_data)
 
+    pagination = paginate_response(total_count, page, limit)
     return JsonResponse({
-        "total_count": total_count,
-        "page": page,
-        "limit": limit,
-        "total_pages": (total_count + limit - 1) // limit,
+        **pagination,
         "faces": faces_list,
     })
 
@@ -1125,23 +1012,14 @@ def delete_face(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
-
-    import json
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+    # Parser le body JSON
+    success, data = parse_json_body(request)
+    if not success:
+        return data
 
     face_id = data.get("face_id")
     if not face_id:
@@ -1186,15 +1064,9 @@ def get_face_image(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
-
-    token = auth_header.split(" ")[1]
-    try:
-        verify_token(token)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
+    success, result = verify_user_token(request)
+    if not success:
+        return result
 
     face_id = request.GET.get('face_id')
     if not face_id:
@@ -1260,11 +1132,17 @@ def test_vectorize(request):
     POST /recfac/test-vectorize/
     Body: multipart/form-data avec "image"
     Retourne les faces détectées avec bboxes et embeddings pour affichage test.
+
+    Rate limited: 10 requêtes par minute par IP.
     """
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
-    # Pas de vérification de token pour les tests
+    # Rate limiting pour éviter l'abus des ressources GPU
+    is_allowed, error_response = check_rate_limit(request)
+    if not is_allowed:
+        return error_response
+
     if 'image' not in request.FILES:
         return JsonResponse({"error": "Image file required."}, status=400)
 
@@ -1295,17 +1173,9 @@ def recalculate_persons_embeddings(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
-
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
     # Récupérer tous les noms de personnes uniques
     person_names = Face.objects.filter(person_name__isnull=False).values_list('person_name', flat=True).distinct()
@@ -1333,29 +1203,21 @@ def scan_all_images(request):
         return JsonResponse({"error": "Method not allowed. Use GET for SSE."}, status=405)
 
     # Vérification du token (admin seulement) - récupéré depuis query params pour EventSource
-    token = request.GET.get("token", "")
-    if not token:
-        return JsonResponse({"error": "Token manquant."}, status=401)
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
+    success, result = verify_admin_token_from_query(request)
+    if not success:
+        return result
 
     # Fonction generator pour le streaming
     def scan_progress():
-        import json
         from django.core.files.uploadedfile import InMemoryUploadedFile
         from io import BytesIO
 
         # Récupérer toutes les images du répertoire
         root = Path(ROOT_DIR).resolve()
-        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 
         # Compter d'abord le total
         all_image_files = []
-        for ext in image_extensions:
+        for ext in IMAGE_EXTENSIONS:
             all_image_files.extend(list(root.rglob(f"*{ext}")))
             all_image_files.extend(list(root.rglob(f"*{ext.upper()}")))
 
@@ -1476,24 +1338,15 @@ def scan_folder(request):
         return JsonResponse({"error": "Method not allowed. Use GET for SSE."}, status=405)
 
     # Vérification du token (admin seulement)
-    token = request.GET.get("token", "")
-    if not token:
-        return JsonResponse({"error": "Token manquant."}, status=401)
-
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
+    success, result = verify_admin_token_from_query(request)
+    if not success:
+        return result
 
     # Récupérer le chemin du dossier
     folder_path = request.GET.get("folder_path", "").strip()
 
     # Fonction generator pour le streaming
     def scan_progress():
-        import json
-
         root = Path(ROOT_DIR).resolve()
 
         # Construire le chemin du dossier à scanner
@@ -1514,11 +1367,9 @@ def scan_folder(request):
             yield f"data: {json.dumps(data)}\n\n"
             return
 
-        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
-
         # Compter d'abord le total (seulement dans ce dossier, pas récursif)
         all_image_files = []
-        for ext in image_extensions:
+        for ext in IMAGE_EXTENSIONS:
             all_image_files.extend(list(target_folder.glob(f"*{ext}")))
             all_image_files.extend(list(target_folder.glob(f"*{ext.upper()}")))
 
@@ -1652,23 +1503,14 @@ def delete_image(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
-
-    import json
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+    # Parser le body JSON
+    success, data = parse_json_body(request)
+    if not success:
+        return data
 
     relative_path = data.get("path", "")
     if not relative_path:
@@ -1731,23 +1573,14 @@ def delete_multiple_images(request):
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
     # Vérification du token (admin seulement)
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse({"error": "Token manquant."}, status=401)
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
 
-    token = auth_header.split(" ")[1]
-    try:
-        payload = verify_token(token)
-        if not payload.get("admin"):
-            return JsonResponse({"error": "Admin access required."}, status=403)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=401)
-
-    import json
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+    # Parser le body JSON
+    success, data = parse_json_body(request)
+    if not success:
+        return data
 
     paths = data.get("paths", [])
     if not paths or not isinstance(paths, list):
@@ -1818,11 +1651,17 @@ def test_compare_faces(request):
     POST /recfac/test-compare-faces/
     Body: multipart/form-data avec "image1" et "image2"
     Retourne la similarité entre les deux premiers visages détectés.
+
+    Rate limited: 10 requêtes par minute par IP.
     """
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
-    # Pas de vérification de token pour les tests
+    # Rate limiting pour éviter l'abus des ressources GPU
+    is_allowed, error_response = check_rate_limit(request)
+    if not is_allowed:
+        return error_response
+
     if 'image1' not in request.FILES or 'image2' not in request.FILES:
         return JsonResponse({"error": "Two images required (image1 and image2)."}, status=400)
 
