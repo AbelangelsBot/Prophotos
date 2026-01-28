@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Photo arriere (rotee gauche) -->
+  <g transform="rotate(-12 32 32)">
+    <rect x="14" y="10" width="36" height="44" rx="2" fill="#f5f5f5" stroke="#ddd" stroke-width="1"/>
+    <rect x="18" y="14" width="28" height="28" fill="#a8d5ba"/>
+    <circle cx="26" cy="22" r="4" fill="#f9e076"/>
+    <polygon points="18,42 28,30 36,38 42,32 46,42" fill="#7cb894"/>
+  </g>
+
+  <!-- Photo milieu (rotee droite) -->
+  <g transform="rotate(8 32 32)">
+    <rect x="14" y="10" width="36" height="44" rx="2" fill="#fafafa" stroke="#ddd" stroke-width="1"/>
+    <rect x="18" y="14" width="28" height="28" fill="#87ceeb"/>
+    <circle cx="38" cy="22" r="5" fill="#f9e076"/>
+    <polygon points="18,42 26,28 34,36 46,24 46,42" fill="#5ba3c6"/>
+  </g>
+
+  <!-- Photo devant (principale) -->
+  <g>
+    <rect x="14" y="10" width="36" height="44" rx="2" fill="#ffffff" stroke="#ccc" stroke-width="1.5"/>
+    <rect x="18" y="14" width="28" height="28" fill="#e8b4b8"/>
+    <circle cx="30" cy="24" r="6" fill="#f9e076"/>
+    <polygon points="18,42 24,32 32,38 40,28 46,36 46,42" fill="#c98b8e"/>
+    <!-- Bordure bas type polaroid -->
+    <rect x="18" y="44" width="28" height="6" fill="#ffffff"/>
+  </g>
+</svg>
