@@ -817,16 +817,24 @@ export default {
     },
 
     async listPersons() {
+      if (!this.token) {
+        this.error = "Vous devez être connecté";
+        return;
+      }
+
       this.loading = true;
       this.error = null;
       this.persons = null;
 
       try {
-        const response = await fetch(`${RECFAC_API_URL}/recfac/persons/`);
+        const response = await fetch(`${RECFAC_API_URL}/recfac/persons/`, {
+          headers: { Authorization: `Bearer ${this.token}` },
+        });
         if (response.ok) {
           this.persons = await response.json();
         } else {
-          this.error = "Erreur lors du chargement des personnes";
+          const data = await response.json();
+          this.error = data.error || "Erreur lors du chargement des personnes";
         }
       } catch (error) {
         this.error = error.message;
@@ -884,8 +892,12 @@ export default {
     },
 
     async loadTagPersonsList() {
+      if (!this.token) return;
+
       try {
-        const response = await fetch(`${RECFAC_API_URL}/recfac/persons/`);
+        const response = await fetch(`${RECFAC_API_URL}/recfac/persons/`, {
+          headers: { Authorization: `Bearer ${this.token}` },
+        });
         if (response.ok) {
           const data = await response.json();
           this.tagPersonsList = data.persons || [];
