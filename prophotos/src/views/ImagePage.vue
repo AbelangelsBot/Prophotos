@@ -976,6 +976,11 @@ export default {
 .image-container {
   position: relative;
   overflow: hidden;
+  /* Prevent iOS native context menu on long press */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .card-img-top {
@@ -984,6 +989,9 @@ export default {
   object-fit: contain;
   user-select: none;
   transition: transform 0.1s ease-out;
+  /* Prevent iOS native context menu on long press */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
 }
 
 /* Boutons de navigation (PC) - positionnés par rapport à l'image */

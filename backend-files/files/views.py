@@ -5,6 +5,7 @@ import os
 import shutil
 import base64
 import json
+import hashlib
 from PIL import Image
 from io import BytesIO
 from utils import verify_token
@@ -12,12 +13,18 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 import threading
 import requests
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
 
 ROOT_DIR = os.environ.get("FILES_ROOT_DIR")
 RECFAC_API_URL = os.environ.get("RECFAC_API_URL", "http://backend-recfac:8001")
+
+# ===== CACHE CONFIGURATION =====
+CACHE_DIR = Path(os.environ.get("THUMBNAIL_CACHE_DIR", "/tmp/prophotos_thumbnails"))
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+MAX_WORKERS = int(os.environ.get("THUMBNAIL_WORKERS", 4))  # Nombre de threads pour le traitement parallèle
 
 
 def scan_image_async(image_path, token):
@@ -142,31 +149,48 @@ def get_files(request):
             content = []
             image_extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"]
 
+            # Séparer dossiers et images
+            folders = []
+            images_to_process = []
+
             for item in candidate.iterdir():
-                # Inclure uniquement les dossiers et les images
                 if item.is_dir():
-                    content.append({
+                    folders.append({
                         "Name": item.name,
                         "isDirectory": True,
                         "Path": str(item.relative_to(root)),
                         "Img": None,
                     })
                 elif item.is_file() and item.suffix.lower() in image_extensions:
-                    # Utiliser des miniatures de qualite differente selon l'authentification
+                    images_to_process.append(item)
+
+            # Ajouter les dossiers en premier
+            content.extend(folders)
+
+            # Traitement parallèle des images
+            if images_to_process:
+                def process_image(item):
+                    """Traite une image et retourne son dict."""
                     if is_authenticated:
-                        # Utilisateur connecte: miniatures de bonne qualite
                         img = compress_and_encode_image(item, (300, 300), 55)
                     else:
-                        # Invite: miniatures degradees (petites, floues, basse qualite)
                         img = compress_and_encode_image_guest(item)
-
-                    content.append({
+                    return {
                         "Name": item.name,
                         "isDirectory": False,
                         "Path": str(item.relative_to(root)),
                         "Img": img,
-                    })
-                # Ignorer les autres fichiers (pdf, txt, etc.)
+                    }
+
+                # Utiliser ThreadPoolExecutor pour le traitement parallèle
+                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                    futures = {executor.submit(process_image, item): item for item in images_to_process}
+                    for future in as_completed(futures):
+                        try:
+                            result = future.result()
+                            content.append(result)
+                        except Exception as e:
+                            logger.error(f"Erreur traitement image: {e}")
 
             return JsonResponse(content, safe=False)
 
@@ -493,11 +517,52 @@ def delete_multiple(request):
     }, status=200)
 
 
-def compress_and_encode_image(image_path, max_size=(400, 400), quality=65):
+def _get_cache_key(image_path, max_size, quality, is_guest=False):
+    """Génère une clé de cache unique basée sur le chemin, la taille, la qualité et la date de modification."""
+    try:
+        mtime = os.path.getmtime(image_path)
+    except OSError:
+        mtime = 0
+    key_string = f"{image_path}:{max_size}:{quality}:{is_guest}:{mtime}"
+    return hashlib.md5(key_string.encode()).hexdigest()
+
+
+def _get_cached_thumbnail(image_path, max_size=(400, 400), quality=65, is_guest=False):
     """
-    Compresse et encode une image en base64.
-    Parametres par defaut optimises pour un bon equilibre taille/qualite.
+    Retourne une miniature depuis le cache ou la génère.
+    Utilise le cache disque pour éviter de retraiter les mêmes images.
     """
+    cache_key = _get_cache_key(image_path, max_size, quality, is_guest)
+    cache_file = CACHE_DIR / f"{cache_key}.jpg"
+
+    # Si en cache et valide, retourner directement
+    if cache_file.exists():
+        try:
+            with open(cache_file, "rb") as f:
+                return f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}"
+        except Exception:
+            pass  # Cache corrompu, regénérer
+
+    # Générer la miniature
+    if is_guest:
+        img_data = _compress_image_guest_internal(image_path)
+    else:
+        img_data = _compress_image_internal(image_path, max_size, quality)
+
+    # Sauvegarder en cache (en arrière-plan pour ne pas bloquer)
+    if img_data:
+        try:
+            raw_data = base64.b64decode(img_data.split(",")[1])
+            with open(cache_file, "wb") as f:
+                f.write(raw_data)
+        except Exception:
+            pass  # Échec du cache, pas grave
+
+    return img_data
+
+
+def _compress_image_internal(image_path, max_size=(400, 400), quality=65):
+    """Compression interne sans cache."""
     try:
         with Image.open(image_path) as img:
             img.thumbnail(max_size)
@@ -508,38 +573,41 @@ def compress_and_encode_image(image_path, max_size=(400, 400), quality=65):
         return None
 
 
-def compress_and_encode_image_guest(image_path):
-    """
-    Compresse et encode une image pour les invites (non connectes).
-    - Resolution tres reduite (150x150)
-    - Blur fort pour empecher la visualisation claire
-    - Qualite tres basse (25)
-    - Desaturation des couleurs
-    """
+def _compress_image_guest_internal(image_path):
+    """Compression pour invités sans cache."""
     try:
         with Image.open(image_path) as img:
-            # Resolution tres reduite
             img.thumbnail((150, 150))
-
-            # Convertir en RGB pour le traitement
             img = img.convert("RGB")
-
-            # Appliquer un blur fort
             img = img.filter(ImageFilter.GaussianBlur(8))
-
-            # Reduire la saturation des couleurs
             enhancer = ImageEnhance.Color(img)
             img = enhancer.enhance(0.3)
-
-            # Reduire le contraste
             enhancer = ImageEnhance.Contrast(img)
             img = enhancer.enhance(0.7)
-
             buffer = BytesIO()
             img.save(buffer, format="JPEG", quality=25)
             return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode()}"
     except Exception:
         return None
+
+
+def compress_and_encode_image(image_path, max_size=(400, 400), quality=65):
+    """
+    Compresse et encode une image en base64 avec cache.
+    Parametres par defaut optimises pour un bon equilibre taille/qualite.
+    """
+    return _get_cached_thumbnail(image_path, max_size, quality, is_guest=False)
+
+
+def compress_and_encode_image_guest(image_path):
+    """
+    Compresse et encode une image pour les invites (non connectes) avec cache.
+    - Resolution tres reduite (150x150)
+    - Blur fort pour empecher la visualisation claire
+    - Qualite tres basse (25)
+    - Desaturation des couleurs
+    """
+    return _get_cached_thumbnail(image_path, (150, 150), 25, is_guest=True)
 
 
 @csrf_exempt
@@ -718,9 +786,9 @@ def get_images_batch(request):
         return JsonResponse({"error": "Maximum 100 paths per request."}, status=400)
 
     root = Path(ROOT_DIR).resolve()
-    results = []
 
-    for relative_path in paths:
+    def process_single_image(relative_path):
+        """Traite une seule image et retourne son résultat."""
         try:
             # Construire le chemin absolu et vérifier la sécurité
             full_path = (root / str(relative_path).lstrip("/\\")).resolve()
@@ -728,57 +796,42 @@ def get_images_batch(request):
             # Vérifier que le chemin est dans le root
             try:
                 if not full_path.is_relative_to(root):
-                    results.append({
-                        "path": relative_path,
-                        "error": "Invalid path",
-                        "success": False,
-                    })
-                    continue
+                    return {"path": relative_path, "error": "Invalid path", "success": False}
             except AttributeError:
                 if str(full_path).find(str(root)) != 0:
-                    results.append({
-                        "path": relative_path,
-                        "error": "Invalid path",
-                        "success": False,
-                    })
-                    continue
+                    return {"path": relative_path, "error": "Invalid path", "success": False}
 
             # Vérifier que le fichier existe
             if not full_path.exists() or not full_path.is_file():
-                results.append({
-                    "path": relative_path,
-                    "error": "File not found",
-                    "success": False,
-                })
-                continue
+                return {"path": relative_path, "error": "File not found", "success": False}
 
             # Compresser et encoder l'image (meilleure qualite pour page Personnes)
             img_data = compress_and_encode_image(full_path, (350, 350), 60)
 
             if img_data:
-                # Récupérer les métadonnées de base
                 file_size = full_path.stat().st_size
-
-                results.append({
+                return {
                     "path": relative_path,
                     "name": full_path.name,
                     "img": img_data,
                     "size": file_size,
                     "success": True,
-                })
+                }
             else:
-                results.append({
-                    "path": relative_path,
-                    "error": "Failed to process image",
-                    "success": False,
-                })
+                return {"path": relative_path, "error": "Failed to process image", "success": False}
 
         except Exception as e:
-            results.append({
-                "path": relative_path,
-                "error": str(e),
-                "success": False,
-            })
+            return {"path": relative_path, "error": str(e), "success": False}
+
+    # Traitement parallèle avec ThreadPoolExecutor
+    results = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(process_single_image, path) for path in paths]
+        for future in as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception as e:
+                logger.error(f"Erreur batch processing: {e}")
 
     return JsonResponse({
         "count": len(results),

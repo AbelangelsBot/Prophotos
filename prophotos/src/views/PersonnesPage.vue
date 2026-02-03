@@ -1281,6 +1281,11 @@ export default {
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   position: relative;
   border: 2px solid transparent;
+  /* Prevent iOS native context menu on long press */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .photo-card:hover {
@@ -1303,6 +1308,9 @@ export default {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* Prevent iOS image save callout */
+  -webkit-touch-callout: none;
+  pointer-events: none;
 }
 
 .photo-placeholder {

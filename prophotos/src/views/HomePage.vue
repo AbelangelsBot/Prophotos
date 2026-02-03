@@ -960,6 +960,11 @@ main {
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   overflow: hidden;
   position: relative;
+  /* Prevent iOS native context menu on long press */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .item-card:hover {
@@ -991,6 +996,9 @@ main {
   max-height: 100%;
   max-width: 100%;
   object-fit: contain;
+  /* Prevent iOS image save callout */
+  -webkit-touch-callout: none;
+  pointer-events: none;
 }
 
 .folder-slot {
