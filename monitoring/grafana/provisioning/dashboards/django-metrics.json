@@ -12,7 +12,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -88,7 +88,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus"
           },
           "expr": "rate(django_http_requests_total_by_method_total{job=~\"$service\"}[5m])",
           "legendFormat": "{{job}} - {{method}}",
@@ -101,7 +101,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -177,7 +177,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, rate(django_http_requests_latency_seconds_by_view_method_bucket{job=~\"$service\"}[5m]))",
           "legendFormat": "{{job}} - p95",
@@ -186,7 +186,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.50, rate(django_http_requests_latency_seconds_by_view_method_bucket{job=~\"$service\"}[5m]))",
           "legendFormat": "{{job}} - p50",
@@ -199,7 +199,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -275,7 +275,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus"
           },
           "expr": "rate(django_http_responses_total_by_status_total{job=~\"$service\", status=~\"4..|5..\"}[5m])",
           "legendFormat": "{{job}} - {{status}}",
@@ -288,7 +288,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -364,7 +364,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus"
           },
           "expr": "rate(django_db_execute_total{job=~\"$service\"}[5m])",
           "legendFormat": "{{job}} - DB queries/s",
@@ -388,7 +388,7 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus"
         },
         "definition": "label_values(django_http_requests_total_by_method_total, job)",
         "hide": 0,
