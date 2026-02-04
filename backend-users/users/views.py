@@ -67,8 +67,8 @@ def get_current_user(request):
 
 @csrf_exempt
 def verify_token_session(request):
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
         return JsonResponse({"error": "Token manquant"}, status=401)
 
     try:

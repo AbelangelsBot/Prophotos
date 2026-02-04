@@ -631,7 +631,10 @@ def get_image_info(request):
 
         file_info = full_path
 
-        token = request.headers.get("Authorization", "").split(" ")[1] if "Authorization" in request.headers else None
+        auth_header = request.headers.get("Authorization", "")
+        token = None
+        if auth_header.startswith("Bearer ") and len(auth_header.split(" ")) > 1:
+            token = auth_header.split(" ")[1]
         is_authenticated = False
         token_mess='token absent'
         if token:
@@ -723,7 +726,11 @@ def generate_protected_image(image_path):
 @csrf_exempt
 def download_image(request):
     if request.method == "GET":
-        token = request.headers.get("Authorization", "").split(" ")[1]
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JsonResponse({"error": "Token manquant."}, status=401)
+
+        token = auth_header.split(" ")[1]
         try:
             verify_token(token)
         except Exception:
