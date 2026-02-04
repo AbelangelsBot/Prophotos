@@ -184,7 +184,7 @@ class AddFilesTestCase(TestCase):
 
 
 class AddFolderTestCase(TestCase):
-    """Tests pour l'endpoint POST /files/add-folder/"""
+    """Tests pour l'endpoint POST /files/folder/"""
 
     def setUp(self):
         self.client = Client()
@@ -199,7 +199,7 @@ class AddFolderTestCase(TestCase):
     def test_add_folder_no_token(self):
         """Creation de dossier sans token doit echouer."""
         response = self.client.post(
-            "/files/add-folder/",
+            "/files/folder/",
             json.dumps({"folder_name": "newfolder"}),
             content_type="application/json"
         )
@@ -211,7 +211,7 @@ class AddFolderTestCase(TestCase):
         mock_verify.return_value = {"admin": True, "user_id": 1}
 
         response = self.client.post(
-            "/files/add-folder/",
+            "/files/folder/",
             json.dumps({"path": "", "folder_name": "newfolder"}),
             content_type="application/json",
             HTTP_AUTHORIZATION="Bearer test_token"
@@ -226,7 +226,7 @@ class AddFolderTestCase(TestCase):
         (Path(self.temp_dir) / "existing").mkdir()
 
         response = self.client.post(
-            "/files/add-folder/",
+            "/files/folder/",
             json.dumps({"path": "", "folder_name": "existing"}),
             content_type="application/json",
             HTTP_AUTHORIZATION="Bearer test_token"
@@ -343,7 +343,7 @@ class DeleteMultipleTestCase(TestCase):
 
 
 class GetImageInfoTestCase(TestCase):
-    """Tests pour l'endpoint GET /files/image-info/"""
+    """Tests pour l'endpoint GET /files/image/"""
 
     def setUp(self):
         self.client = Client()
@@ -360,18 +360,18 @@ class GetImageInfoTestCase(TestCase):
         shutil.rmtree(self.temp_dir)
 
     def test_get_image_info_no_path(self):
-        """GET /files/image-info/ sans path doit echouer."""
-        response = self.client.get("/files/image-info/")
+        """GET /files/image/ sans path doit echouer."""
+        response = self.client.get("/files/image/")
         self.assertEqual(response.status_code, 400)
 
     def test_get_image_info_nonexistent(self):
-        """GET /files/image-info/ avec chemin inexistant doit retourner 404."""
-        response = self.client.get("/files/image-info/?path=nonexistent.jpg")
+        """GET /files/image/ avec chemin inexistant doit retourner 404."""
+        response = self.client.get("/files/image/?path=nonexistent.jpg")
         self.assertEqual(response.status_code, 404)
 
     def test_get_image_info_guest(self):
-        """GET /files/image-info/ sans token retourne image protegee."""
-        response = self.client.get("/files/image-info/?path=info_test.jpg")
+        """GET /files/image/ sans token retourne image protegee."""
+        response = self.client.get("/files/image/?path=info_test.jpg")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["Name"], "info_test.jpg")
@@ -379,11 +379,11 @@ class GetImageInfoTestCase(TestCase):
 
     @patch('files.views.verify_token')
     def test_get_image_info_authenticated(self, mock_verify):
-        """GET /files/image-info/ avec token retourne image complete."""
+        """GET /files/image/ avec token retourne image complete."""
         mock_verify.return_value = {"user_id": 1}
 
         response = self.client.get(
-            "/files/image-info/?path=info_test.jpg",
+            "/files/image/?path=info_test.jpg",
             HTTP_AUTHORIZATION="Bearer test_token"
         )
         self.assertEqual(response.status_code, 200)
@@ -394,7 +394,7 @@ class GetImageInfoTestCase(TestCase):
 
 
 class DownloadImageTestCase(TestCase):
-    """Tests pour l'endpoint GET /files/download/"""
+    """Tests pour l'endpoint GET /files/image/download/"""
 
     def setUp(self):
         self.client = Client()
@@ -411,7 +411,7 @@ class DownloadImageTestCase(TestCase):
 
     def test_download_no_token(self):
         """Telechargement sans token doit echouer."""
-        response = self.client.get("/files/download/?path=download.jpg")
+        response = self.client.get("/files/image/download/?path=download.jpg")
         self.assertEqual(response.status_code, 401)
 
     @patch('files.views.verify_token')
@@ -420,7 +420,7 @@ class DownloadImageTestCase(TestCase):
         mock_verify.return_value = {"user_id": 1}
 
         response = self.client.get(
-            "/files/download/?path=download.jpg",
+            "/files/image/download/?path=download.jpg",
             HTTP_AUTHORIZATION="Bearer test_token"
         )
         self.assertEqual(response.status_code, 200)

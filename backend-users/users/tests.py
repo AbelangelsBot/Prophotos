@@ -191,7 +191,7 @@ class VerifyTokenEndpointTestCase(TestCase):
 
 
 class CreateUserTestCase(TestCase):
-    """Tests pour l'endpoint POST /users/register/"""
+    """Tests pour l'endpoint POST /users/create/"""
 
     def setUp(self):
         self.client = Client()
@@ -201,7 +201,7 @@ class CreateUserTestCase(TestCase):
         """Creation d'utilisateur avec donnees valides."""
         mock_mail.return_value = 1
         response = self.client.post(
-            "/users/register/",
+            "/users/create/",
             data=json.dumps({
                 "username": "newuser",
                 "email": "newuser@example.com",
@@ -215,7 +215,7 @@ class CreateUserTestCase(TestCase):
     def test_create_user_missing_fields(self):
         """Creation sans champs requis doit echouer."""
         response = self.client.post(
-            "/users/register/",
+            "/users/create/",
             data=json.dumps({"username": "onlyuser"}),
             content_type="application/json"
         )
@@ -224,7 +224,7 @@ class CreateUserTestCase(TestCase):
     def test_create_user_short_password(self):
         """Mot de passe trop court doit etre rejete."""
         response = self.client.post(
-            "/users/register/",
+            "/users/create/",
             data=json.dumps({
                 "username": "shortpass",
                 "email": "short@test.com",
@@ -237,7 +237,7 @@ class CreateUserTestCase(TestCase):
     def test_create_user_invalid_email(self):
         """Email invalide doit etre rejete."""
         response = self.client.post(
-            "/users/register/",
+            "/users/create/",
             data=json.dumps({
                 "username": "bademail",
                 "email": "notanemail",
@@ -257,7 +257,7 @@ class CreateUserTestCase(TestCase):
             password=make_password("password123")
         )
         response = self.client.post(
-            "/users/register/",
+            "/users/create/",
             data=json.dumps({
                 "username": "duplicate",
                 "email": "second@test.com",

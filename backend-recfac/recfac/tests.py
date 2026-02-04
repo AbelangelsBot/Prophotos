@@ -456,7 +456,7 @@ class GetUntaggedFacesTestCase(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["total"], 2)  # Seulement 2 non taggées
+        self.assertEqual(data["total_count"], 2)  # Seulement 2 non taggées
 
     @patch('recfac.views.verify_admin_token')
     def test_untagged_pagination(self, mock_verify):
@@ -470,7 +470,7 @@ class GetUntaggedFacesTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data["faces"]), 1)
-        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["total_count"], 2)
         self.assertEqual(data["page"], 1)
         self.assertEqual(data["limit"], 1)
 
