@@ -6,3 +6,4 @@ Pillow>=10.4
 python-dotenv>=1.0
 requests>=2.32
 numpy>=1.24
+django-prometheus>=2.3

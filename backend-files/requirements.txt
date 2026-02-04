@@ -5,4 +5,5 @@ PyJWT>=2.9
 Pillow>=10.4
 python-dotenv>=1.0
 requests>=2.31
+django-prometheus>=2.3
 

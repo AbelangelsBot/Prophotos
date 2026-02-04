@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers: []
+
+rule_files: []
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Backend Users Service
+  - job_name: 'users-service'
+    static_configs:
+      - targets: ['users:8000']
+    metrics_path: /metrics
+
+  # Backend Files Service
+  - job_name: 'files-service'
+    static_configs:
+      - targets: ['files:8000']
+    metrics_path: /metrics
+
+  # Backend Recfac Service
+  - job_name: 'recfac-service'
+    static_configs:
+      - targets: ['recfac:8000']
+    metrics_path: /metrics
+
+  # PostgreSQL (via postgres_exporter si ajoute plus tard)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
