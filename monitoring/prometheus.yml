@@ -31,6 +31,11 @@ scrape_configs:
       - targets: ['recfac:8000']
     metrics_path: /metrics
 
+  # cAdvisor - Container metrics (CPU, RAM, Network)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+
   # PostgreSQL (via postgres_exporter si ajoute plus tard)
   # - job_name: 'postgres'
   #   static_configs:
