@@ -9,6 +9,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from django.db.models import Q
+from django.db import transaction
+from django.core.cache import cache
 
 from .models import Image, Face, Person
 from utils import calculate_file_hash, get_image_dimensions
@@ -244,19 +246,26 @@ def check_health(request):
                     "body": resp.text[:200],
                 }
         except requests.RequestException as exc:
-            gpu_detail = {"error": str(exc)}
+            gpu_detail = {"error": "GPU worker unreachable"}
     else:
         gpu_detail = {"error": "GPU_WORKER_URL not set"}
 
-    return JsonResponse({
+    # Réponse basique pour tout le monde
+    response = {
         "service": "recfac",
         "ok": True,
         "gpu_worker_ok": gpu_ok,
-        "gpu_worker": gpu_detail,
-        "images_count": Image.objects.count(),
-        "faces_count": Face.objects.count(),
-        "persons_count": Person.objects.count(),
-    })
+    }
+
+    # Détails supplémentaires seulement pour les admins
+    success, _ = verify_admin_token(request)
+    if success:
+        response["gpu_worker"] = gpu_detail
+        response["images_count"] = Image.objects.count()
+        response["faces_count"] = Face.objects.count()
+        response["persons_count"] = Person.objects.count()
+
+    return JsonResponse(response)
 
 
 @csrf_exempt
@@ -487,7 +496,12 @@ def search_face(request):
     if not success:
         return result
 
-    threshold = float(request.GET.get('threshold', '0.6'))
+    try:
+        threshold = float(request.GET.get('threshold', '0.6'))
+    except (ValueError, TypeError):
+        threshold = 0.6
+    threshold = max(0.0, min(1.0, threshold))
+
     query_embedding = None
 
     # Cas 1: Recherche par face_id
@@ -523,18 +537,20 @@ def search_face(request):
     else:
         return JsonResponse({"error": "Provide either 'image' file or JSON with 'face_id'."}, status=400)
 
-    # Rechercher les visages similaires
-    all_faces = Face.objects.select_related('image').all()
-    similar_faces = []
+    # Limiter le nombre de résultats
+    try:
+        max_results = int(request.GET.get('limit', '50'))
+    except (ValueError, TypeError):
+        max_results = 50
+    max_results = max(1, min(200, max_results))
+    query_emb = np.array(query_embedding, dtype=np.float32)
 
-    # Aussi comparer avec les embeddings moyens des personnes
+    # 1. Comparer avec les embeddings moyens des personnes (plus rapide, moins d'entrées)
     persons_matches = []
-    all_persons = Person.objects.exclude(average_embedding__isnull=True)
+    all_persons = Person.objects.exclude(average_embedding__isnull=True).only('name', 'average_embedding')
 
     for person in all_persons:
-        # Utiliser la fonction helper pour calculer la similarité
-        similarity = _calculate_cosine_similarity(query_embedding, person.average_embedding)
-
+        similarity = float(np.dot(query_emb, np.array(person.average_embedding, dtype=np.float32)))
         if similarity >= threshold:
             persons_matches.append({
                 "person_name": person.name,
@@ -542,24 +558,44 @@ def search_face(request):
                 "match_type": "person_average",
             })
 
-    # Comparer avec chaque visage individuel
-    for face in all_faces:
-        # Utiliser la fonction helper pour calculer la similarité
-        similarity = _calculate_cosine_similarity(query_embedding, face.embedding)
+    # 2. Recherche vectorisée sur les visages (batch processing)
+    # Charger seulement les champs nécessaires
+    faces_data = list(
+        Face.objects
+        .select_related('image')
+        .only('id', 'embedding', 'person_name', 'bbox_x1', 'bbox_y1', 'bbox_x2', 'bbox_y2',
+              'image__id', 'image__path')
+        .all()
+    )
 
-        if similarity >= threshold:
-            similar_faces.append({
-                "face_id": str(face.id),
-                "image_id": str(face.image.id),
-                "image_path": face.image.path,
-                "similarity": round(similarity, 4),
-                "bbox": [face.bbox_x1, face.bbox_y1, face.bbox_x2, face.bbox_y2],
-                "person_name": face.person_name,
-                "match_type": "face",
-            })
+    if faces_data:
+        # Créer une matrice de tous les embeddings pour calcul vectorisé
+        embeddings_matrix = np.array([f.embedding for f in faces_data], dtype=np.float32)
 
-    # Trier par similarité décroissante
-    similar_faces.sort(key=lambda x: x['similarity'], reverse=True)
+        # Calcul de similarité vectorisé (produit scalaire avec embeddings normalisés)
+        similarities = np.dot(embeddings_matrix, query_emb)
+
+        # Filtrer par threshold et créer les résultats
+        similar_faces = []
+        for i, sim in enumerate(similarities):
+            if sim >= threshold:
+                face = faces_data[i]
+                similar_faces.append({
+                    "face_id": str(face.id),
+                    "image_id": str(face.image.id),
+                    "image_path": face.image.path,
+                    "similarity": round(float(sim), 4),
+                    "bbox": [face.bbox_x1, face.bbox_y1, face.bbox_x2, face.bbox_y2],
+                    "person_name": face.person_name,
+                    "match_type": "face",
+                })
+
+        # Trier et limiter
+        similar_faces.sort(key=lambda x: x['similarity'], reverse=True)
+        similar_faces = similar_faces[:max_results]
+    else:
+        similar_faces = []
+
     persons_matches.sort(key=lambda x: x['similarity'], reverse=True)
 
     return JsonResponse({
@@ -616,6 +652,9 @@ def tag_face(request):
     if old_person_name and old_person_name != person_name:
         _update_person_average_embedding(old_person_name)
 
+    # Invalider le cache des personnes
+    _invalidate_persons_cache()
+
     return JsonResponse({
         "face_id": str(face.id),
         "person_name": face.person_name,
@@ -645,7 +684,11 @@ def tag_face_with_similarity(request):
 
     face_id = data.get("face_id")
     person_name = _normalize_person_name(data.get("person_name", ""))
-    similarity_threshold = data.get("similarity_threshold", 0.6)
+    try:
+        similarity_threshold = float(data.get("similarity_threshold", 0.6))
+    except (ValueError, TypeError):
+        similarity_threshold = 0.6
+    similarity_threshold = max(0.0, min(1.0, similarity_threshold))
 
     if not face_id:
         return JsonResponse({"error": "face_id required."}, status=400)
@@ -661,34 +704,60 @@ def tag_face_with_similarity(request):
     # Obtenir l'embedding du visage de référence
     reference_embedding = np.array(reference_face.embedding, dtype=np.float32)
 
-    # Trouver tous les visages non taggés ou avec un nom différent
-    all_faces = Face.objects.exclude(id=face_id)
+    # Transaction atomique pour garantir la cohérence des données
+    with transaction.atomic():
+        # Tagger le visage de référence
+        reference_face.person_name = person_name
+        reference_face.save()
+        tagged_faces_ids = [str(reference_face.id)]
 
-    tagged_faces = []
-    tagged_faces_ids = []
+        # Charger tous les autres visages avec leurs images (optimisé)
+        all_faces = list(
+            Face.objects.exclude(id=face_id)
+            .select_related('image')
+            .only('id', 'embedding', 'person_name', 'image__path')
+        )
 
-    # Tagger le visage de référence
-    reference_face.person_name = person_name
-    reference_face.save()
-    tagged_faces_ids.append(str(reference_face.id))
+        if not all_faces:
+            # Pas d'autres visages à comparer
+            tagged_faces = []
+        else:
+            # Calcul vectorisé des similarités avec numpy
+            embeddings_matrix = np.array([f.embedding for f in all_faces], dtype=np.float32)
+            # Normaliser l'embedding de référence
+            ref_norm = reference_embedding / (np.linalg.norm(reference_embedding) + 1e-10)
+            # Produit scalaire = similarité cosinus
+            similarities = np.dot(embeddings_matrix, ref_norm)
 
-    # Comparer avec tous les autres visages
-    for face in all_faces:
-        face_embedding = np.array(face.embedding, dtype=np.float32)
-        similarity = _calculate_cosine_similarity(reference_embedding, face_embedding)
+            # Trouver les indices des visages similaires
+            similar_mask = similarities >= similarity_threshold
+            similar_indices = np.where(similar_mask)[0]
 
-        if similarity >= similarity_threshold:
-            face.person_name = person_name
-            face.save()
-            tagged_faces.append({
-                "face_id": str(face.id),
-                "similarity": float(similarity),
-                "image_path": face.image.path,
-            })
-            tagged_faces_ids.append(str(face.id))
+            # Préparer les visages à mettre à jour
+            faces_to_update = []
+            tagged_faces = []
 
-    # Recalculer l'embedding moyen pour cette personne
-    _update_person_average_embedding(person_name)
+            for idx in similar_indices:
+                face = all_faces[idx]
+                similarity = float(similarities[idx])
+                face.person_name = person_name
+                faces_to_update.append(face)
+                tagged_faces.append({
+                    "face_id": str(face.id),
+                    "similarity": similarity,
+                    "image_path": face.image.path,
+                })
+                tagged_faces_ids.append(str(face.id))
+
+            # Mise à jour en batch
+            if faces_to_update:
+                Face.objects.bulk_update(faces_to_update, ['person_name'])
+
+        # Recalculer l'embedding moyen pour cette personne
+        _update_person_average_embedding(person_name)
+
+    # Invalider le cache des personnes (hors transaction)
+    _invalidate_persons_cache()
 
     return JsonResponse({
         "reference_face_id": str(reference_face.id),
@@ -698,6 +767,15 @@ def tag_face_with_similarity(request):
         "tagged_faces": tagged_faces,
         "similarity_threshold": similarity_threshold,
     })
+
+
+PERSONS_CACHE_KEY = 'recfac_persons_list'
+PERSONS_CACHE_TIMEOUT = 60  # 1 minute cache
+
+
+def _invalidate_persons_cache():
+    """Invalide le cache des personnes après modification."""
+    cache.delete(PERSONS_CACHE_KEY)
 
 
 @csrf_exempt
@@ -715,8 +793,12 @@ def list_persons(request):
     if not success:
         return result
 
-    # Récupérer les person_name uniques (non null et non vides)
-    # Utiliser annotate pour grouper et compter directement
+    # Essayer de récupérer depuis le cache
+    cached_result = cache.get(PERSONS_CACHE_KEY)
+    if cached_result is not None:
+        return JsonResponse(cached_result)
+
+    # Récupérer les person_name uniques avec comptage en une seule query
     from django.db.models import Count
 
     persons = (
@@ -728,32 +810,22 @@ def list_persons(request):
         .order_by('person_name')
     )
 
-    persons_list = []
-    seen_names = set()  # Pour détecter les doublons après normalisation
+    # Conversion directe en liste (les noms sont déjà normalisés à la sauvegarde)
+    persons_list = [
+        {"name": p['person_name'], "faces_count": p['faces_count']}
+        for p in persons
+        if p['person_name'].strip()  # Filtre sécurité
+    ]
 
-    for person in persons:
-        name = person['person_name'].strip()  # Normaliser (supprimer espaces)
-
-        # Skip si vide après normalisation
-        if not name:
-            continue
-
-        # Skip si déjà vu (gère les variations d'espaces)
-        name_lower = name.lower()
-        if name_lower in seen_names:
-            continue
-
-        seen_names.add(name_lower)
-
-        persons_list.append({
-            "name": name,
-            "faces_count": person['faces_count'],
-        })
-
-    return JsonResponse({
+    result = {
         "count": len(persons_list),
         "persons": persons_list,
-    })
+    }
+
+    # Mettre en cache
+    cache.set(PERSONS_CACHE_KEY, result, PERSONS_CACHE_TIMEOUT)
+
+    return JsonResponse(result)
 
 
 @csrf_exempt
@@ -914,30 +986,34 @@ def get_image_details(request):
             "exists_in_db": False,
         })
 
-    # Récupérer les visages de cette image
-    faces = image.faces.all()
+    # Récupérer les visages de cette image (une seule query)
+    faces = list(image.faces.all())
 
-    # Compter les personnes uniques
-    persons_in_image = faces.filter(person_name__isnull=False).values('person_name').distinct()
-    persons_list = []
+    # Compter les personnes uniques avec une seule query annotée
+    from django.db.models import Count
+    persons_in_image = (
+        image.faces
+        .filter(person_name__isnull=False)
+        .exclude(person_name='')
+        .values('person_name')
+        .annotate(faces_count=Count('id'))
+        .order_by('person_name')
+    )
+    persons_list = [
+        {"name": p['person_name'], "faces_count": p['faces_count']}
+        for p in persons_in_image
+    ]
 
-    for person in persons_in_image:
-        name = person['person_name']
-        face_count = faces.filter(person_name=name).count()
-        persons_list.append({
-            "name": name,
-            "faces_count": face_count,
-        })
-
-    # Détails des visages
-    faces_list = []
-    for face in faces:
-        faces_list.append({
+    # Détails des visages (déjà chargés en mémoire)
+    faces_list = [
+        {
             "face_id": str(face.id),
             "bbox": [face.bbox_x1, face.bbox_y1, face.bbox_x2, face.bbox_y2],
             "det_score": face.det_score,
             "person_name": face.person_name,
-        })
+        }
+        for face in faces
+    ]
 
     return JsonResponse({
         "image_id": str(image.id),

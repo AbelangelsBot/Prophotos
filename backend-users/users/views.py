@@ -178,7 +178,6 @@ def user_verification(request, token):
                     return JsonResponse({
                         "error": f"Le lien de verification a expire (valide {VERIFICATION_TOKEN_EXPIRY_HOURS}h). Demandez un nouveau lien.",
                         "code": "token_expired",
-                        "email": user.email
                     }, status=410)
 
             user.verifie = True
@@ -198,7 +197,9 @@ def user_verification(request, token):
             return JsonResponse({"message": "Utilisateur verifie avec succes."}, status=200)
 
         except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
+            import logging
+            logging.getLogger(__name__).exception("Erreur lors de la verification")
+            return JsonResponse({"error": "Erreur interne du serveur."}, status=500)
 
     return JsonResponse({"error": "Methode non autorisee."}, status=405)
 
@@ -236,12 +237,13 @@ def resend_verification(request):
             verification_link = f"{base_verify_url}verify/{new_token}/"
 
             send_mail(
-                subject=f"Nouveau lien de verification - ProPhotos",
+                subject=f"Nouveau lien de verification [{user.username}] - ProPhotos",
                 message=(
-                    f"Bonjour {user.username},\n\n"
-                    "Voici votre nouveau lien de verification:\n"
-                    f"{verification_link}\n\n"
-                    f"Ce lien est valide {VERIFICATION_TOKEN_EXPIRY_HOURS} heures.\n"
+                    f"L'utilisateur {user.username} a demande un nouveau lien de verification.\n\n"
+                    f"Email : {user.email}\n"
+                    f"Demande admin : {'oui' if user.admin else 'non'}\n"
+                    f"Lien de verification (valide {VERIFICATION_TOKEN_EXPIRY_HOURS}h):\n"
+                    f"{verification_link}\n"
                 ),
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[settings.ADMIN_EMAIL],

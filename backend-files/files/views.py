@@ -195,7 +195,8 @@ def get_files(request):
             return JsonResponse(content, safe=False)
 
         except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
+            logger.exception("Erreur lors de la lecture des fichiers")
+            return JsonResponse({"error": "Erreur interne du serveur."}, status=500)
 
     return JsonResponse({"error": "Invalid HTTP method."}, status=405)
 
@@ -395,7 +396,8 @@ def delete_item(request):
         else:
             target.unlink()
     except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+        logger.exception("Erreur lors de la suppression")
+        return JsonResponse({"error": "Erreur lors de la suppression."}, status=500)
 
     # Notifier recfac de la suppression (en arrière-plan)
     if is_image:
@@ -664,7 +666,8 @@ def get_image_info(request):
             })
 
         except Exception as e:
-            return JsonResponse({"error": f"Erreur lors du traitement de l'image : {str(e)}"}, status=500)
+            logger.exception("Erreur lors du traitement de l'image")
+            return JsonResponse({"error": "Erreur lors du traitement de l'image."}, status=500)
 
     return JsonResponse({"error": "Méthode non autorisée."}, status=405)
 
