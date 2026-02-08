@@ -12,7 +12,7 @@ from .models import User, LoginAttempt
 from .email_validator import validate_email
 import json
 from django.utils.timezone import now
-from utils import generate_token, verify_token
+from utils import generate_token, verify_token, verify_admin_token, parse_json_body
 
 # Configuration anti-bruteforce
 MAX_LOGIN_ATTEMPTS = 5  # Nombre max de tentatives
@@ -61,7 +61,7 @@ def get_current_user(request):
     try:
         payload = verify_token(token)
         user = User.objects.get(id=payload["user_id"])
-        return JsonResponse({"username": user.username, "admin": user.admin}, status=200)
+        return JsonResponse({"id": user.id, "username": user.username, "admin": user.admin}, status=200)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=401)
 
@@ -346,3 +346,160 @@ def login(request):
             return JsonResponse({"error": "Donnees invalides."}, status=400)
 
     return JsonResponse({"error": "Methode non autorisee."}, status=405)
+
+
+@csrf_exempt
+def admin_verify_user(request, user_id):
+    """
+    Valider manuellement un compte utilisateur (admin).
+    POST /users/<user_id>/verify/
+    """
+    if request.method != 'POST':
+        return JsonResponse({"error": "Methode non autorisee."}, status=405)
+
+    success, result = verify_admin_token(request)
+    if not success:
+        return result
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Utilisateur non trouve."}, status=404)
+
+    if user.verifie:
+        return JsonResponse({"error": "Utilisateur deja verifie."}, status=400)
+
+    user.verifie = True
+    user.verified_at = now()
+    user.link_verification = None
+    user.verification_token_created_at = None
+    user.save()
+
+    # Notifier l'utilisateur par email
+    try:
+        send_mail(
+            subject="Compte valide - ProPhotos",
+            message=(
+                f"Bonjour {user.username},\n\n"
+                "Votre compte ProPhotos a ete verifie par un administrateur.\n"
+                "Vous pouvez maintenant vous connecter.\n"
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=True,
+        )
+    except Exception:
+        pass
+
+    return JsonResponse({
+        "message": f"Utilisateur {user.username} verifie avec succes.",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "admin": user.admin,
+            "verifie": True,
+        }
+    })
+
+
+@csrf_exempt
+def update_user(request, user_id):
+    """
+    Modifier un utilisateur (admin).
+    PUT /users/<user_id>/update/
+    Body JSON: {"username": "...", "email": "...", "admin": true/false}
+    """
+    if request.method != 'PUT':
+        return JsonResponse({"error": "Methode non autorisee."}, status=405)
+
+    success, payload = verify_admin_token(request)
+    if not success:
+        return payload
+
+    success, data = parse_json_body(request)
+    if not success:
+        return data
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Utilisateur non trouve."}, status=404)
+
+    # Empecher l'admin de se retirer ses propres droits admin
+    admin_caller_id = payload.get("user_id")
+    if 'admin' in data and not data['admin'] and user.id == admin_caller_id:
+        return JsonResponse({"error": "Vous ne pouvez pas retirer vos propres droits administrateur."}, status=400)
+
+    # Mise a jour du username
+    new_username = data.get('username')
+    if new_username is not None:
+        new_username = new_username.strip()
+        if not new_username:
+            return JsonResponse({"error": "Le nom d'utilisateur ne peut pas etre vide."}, status=400)
+        if len(new_username) < 3:
+            return JsonResponse({"error": "Le nom d'utilisateur doit faire au moins 3 caracteres."}, status=400)
+        if not new_username.replace('_', '').replace('-', '').isalnum():
+            return JsonResponse({"error": "Le nom d'utilisateur ne peut contenir que des lettres, chiffres, tirets et underscores."}, status=400)
+        if User.objects.filter(username=new_username).exclude(id=user_id).exists():
+            return JsonResponse({"error": "Ce nom d'utilisateur est deja pris."}, status=400)
+        user.username = new_username
+
+    # Mise a jour de l'email
+    new_email = data.get('email')
+    if new_email is not None:
+        new_email = new_email.strip().lower()
+        if not new_email:
+            return JsonResponse({"error": "L'email ne peut pas etre vide."}, status=400)
+        is_valid, error_msg = validate_email(new_email)
+        if not is_valid:
+            return JsonResponse({"error": error_msg}, status=400)
+        if User.objects.filter(email=new_email).exclude(id=user_id).exists():
+            return JsonResponse({"error": "Cet email est deja utilise."}, status=400)
+        user.email = new_email
+
+    # Mise a jour du statut admin
+    if 'admin' in data:
+        user.admin = bool(data['admin'])
+
+    user.save()
+
+    return JsonResponse({
+        "message": f"Utilisateur {user.username} mis a jour.",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "admin": user.admin,
+            "verifie": user.verifie,
+        }
+    })
+
+
+@csrf_exempt
+def delete_user(request, user_id):
+    """
+    Supprimer un utilisateur (admin).
+    DELETE /users/<user_id>/delete/
+    """
+    if request.method != 'DELETE':
+        return JsonResponse({"error": "Methode non autorisee."}, status=405)
+
+    success, payload = verify_admin_token(request)
+    if not success:
+        return payload
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Utilisateur non trouve."}, status=404)
+
+    # Empecher l'admin de se supprimer lui-meme
+    admin_caller_id = payload.get("user_id")
+    if user.id == admin_caller_id:
+        return JsonResponse({"error": "Vous ne pouvez pas supprimer votre propre compte."}, status=400)
+
+    username = user.username
+    user.delete()
+
+    return JsonResponse({"message": f"Utilisateur {username} supprime."})

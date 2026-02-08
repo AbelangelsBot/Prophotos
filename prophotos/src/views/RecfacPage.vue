@@ -2,7 +2,7 @@
   <div>
     <NavigationBar :token="token" @update-token="handleTokenUpdate" />
     <div class="container mt-4">
-      <h1 class="mb-4">Reconnaissance Faciale</h1>
+      <h1 class="mb-4">Configuration</h1>
 
       <!-- GPU Worker Alert -->
       <div v-if="gpuWorkerDown" class="alert alert-danger alert-dismissible fade show mb-4" role="alert">

@@ -4,6 +4,7 @@ import LoginPage from '@/views/LoginPage.vue';
 import ImagePage from '@/views/ImagePage.vue';
 import RecfacPage from '@/views/RecfacPage.vue';
 import PersonnesPage from '@/views/PersonnesPage.vue';
+import UsersPage from '@/views/UsersPage.vue';
 import { USERS_API_URL } from '@/constants';
 
 const routes = [
@@ -38,6 +39,12 @@ const routes = [
     name: 'Personnes',
     component: PersonnesPage,
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/utilisateurs',
+    name: 'Utilisateurs',
+    component: UsersPage,
+    meta: { requiresAuth: true, requiresAdmin: true },
   },
 ];
 
