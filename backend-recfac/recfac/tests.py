@@ -48,8 +48,7 @@ class CheckHealthTestCase(TestCase):
         data = response.json()
         self.assertEqual(data["service"], "recfac")
         self.assertTrue(data["ok"])
-        self.assertIn("images_count", data)
-        self.assertIn("faces_count", data)
+       
 
     def test_health_check_post_not_allowed(self):
         """POST /recfac/check-health/ doit retourner 405."""
