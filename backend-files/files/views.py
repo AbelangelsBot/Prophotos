@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 import threading
 import requests
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,8 @@ def hello(request):
 @csrf_exempt
 def get_files(request):
     if request.method == "GET":
+        t_total = time.time()
+
         # Default to current directory under root, not "/" which escapes join semantics
         relative_path = request.GET.get("path", "")
 
@@ -135,6 +138,7 @@ def get_files(request):
             return JsonResponse({"error": "Directory not found."}, status=404)
 
         # Verifier si l'utilisateur est authentifie
+        t_auth = time.time()
         is_authenticated = False
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -144,12 +148,14 @@ def get_files(request):
                 is_authenticated = True
             except Exception:
                 is_authenticated = False
+        logger.info(f"[PERF] Auth verification: {time.time() - t_auth:.3f}s (authenticated={is_authenticated})")
 
         try:
             content = []
             image_extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"]
 
             # Séparer dossiers et images
+            t_iterdir = time.time()
             folders = []
             images_to_process = []
 
@@ -163,6 +169,7 @@ def get_files(request):
                     })
                 elif item.is_file() and item.suffix.lower() in image_extensions:
                     images_to_process.append(item)
+            logger.info(f"[PERF] Directory listing: {time.time() - t_iterdir:.3f}s ({len(folders)} folders, {len(images_to_process)} images)")
 
             # Trier les dossiers par nom (A-Z)
             folders.sort(key=lambda f: f["Name"].lower())
@@ -173,12 +180,37 @@ def get_files(request):
                 # Trier les images par nom avant traitement
                 images_to_process.sort(key=lambda item: item.name.lower())
 
+                cache_hits = 0
+                cache_misses = 0
+
                 def process_image(item):
                     """Traite une image et retourne son dict."""
+                    nonlocal cache_hits, cache_misses
+                    t_img = time.time()
+
+                    # Vérifier si le cache existe pour cette image
+                    is_guest = not is_authenticated
+                    if is_authenticated:
+                        cache_key = _get_cache_key(item, (300, 300), 55, is_guest=False)
+                    else:
+                        cache_key = _get_cache_key(item, (150, 150), 25, is_guest=True)
+                    cache_file = CACHE_DIR / f"{cache_key}.jpg"
+                    was_cached = cache_file.exists()
+
                     if is_authenticated:
                         img = compress_and_encode_image(item, (300, 300), 55)
                     else:
                         img = compress_and_encode_image_guest(item)
+
+                    elapsed = time.time() - t_img
+                    if was_cached:
+                        cache_hits += 1
+                    else:
+                        cache_misses += 1
+
+                    if elapsed > 0.5:
+                        logger.warning(f"[PERF] Slow image: {item.name} took {elapsed:.3f}s (cached={was_cached})")
+
                     return {
                         "Name": item.name,
                         "isDirectory": False,
@@ -188,14 +220,22 @@ def get_files(request):
 
                 # Utiliser ThreadPoolExecutor pour le traitement parallèle
                 # Utiliser executor.map pour préserver l'ordre d'entrée (A-Z)
+                t_compress = time.time()
                 with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
                     for result in executor.map(process_image, images_to_process):
                         try:
                             content.append(result)
                         except Exception as e:
                             logger.error(f"Erreur traitement image: {e}")
+                logger.info(f"[PERF] Image processing: {time.time() - t_compress:.3f}s ({len(images_to_process)} images, cache hits={cache_hits}, misses={cache_misses})")
 
-            return JsonResponse(content, safe=False)
+            # Mesurer la taille de la réponse
+            t_serial = time.time()
+            response = JsonResponse(content, safe=False)
+            logger.info(f"[PERF] JSON serialization: {time.time() - t_serial:.3f}s (response size={len(response.content)} bytes)")
+
+            logger.info(f"[PERF] === GET /files/ total: {time.time() - t_total:.3f}s (path='{relative_path}', {len(folders)} folders, {len(images_to_process)} images) ===")
+            return response
 
         except Exception as e:
             logger.exception("Erreur lors de la lecture des fichiers")
