@@ -229,14 +229,15 @@
                 </div>
 
                 <div
-                  v-if="item.Img"
+                  v-if="isPhotoItem(item)"
                   class="media-slot is-clickable"
                   @click="viewImage(item)"
                 >
                   <img
-                    :src="item.Img"
+                    :src="thumbnailUrl(item)"
                     alt="Preview"
                     class="media-image"
+                    loading="lazy"
                   />
                 </div>
 
@@ -271,12 +272,12 @@
           @click.stop
         >
           <ul class="list-unstyled mb-0">
-            <li v-if="contextMenu.item && contextMenu.item.Img">
+            <li v-if="contextMenu.item && isPhotoItem(contextMenu.item)">
               <a href="#" @click.prevent="viewImage(contextMenu.item); hideContextMenu()">
                 Voir l'image
               </a>
             </li>
-            <li v-if="contextMenu.item && contextMenu.item.Img && token">
+            <li v-if="contextMenu.item && isPhotoItem(contextMenu.item) && token">
               <a href="#" @click.prevent="downloadImage(contextMenu.item.Path, contextMenu.item.Name); hideContextMenu()">
                 Télécharger
               </a>
@@ -291,7 +292,7 @@
                 Désélectionner
               </a>
             </li>
-            <li v-if="token && isAdmin && contextMenu.item && contextMenu.item.Img" class="separator">
+            <li v-if="token && isAdmin && contextMenu.item && isPhotoItem(contextMenu.item)" class="separator">
               <a href="#" @click.prevent="scanSingleImage(contextMenu.item); hideContextMenu()">
                 Scanner (Recfac)
               </a>
@@ -387,7 +388,7 @@ export default {
       return this.currentPathSegments.length > 0;
     },
     hasSelectedImages() {
-      return this.selectedItems.some(item => item.Img);
+      return this.selectedItems.some(item => this.isPhotoItem(item));
     },
     sortedDirectoryContent() {
       // S'assurer que directoryContent est un tableau
@@ -467,6 +468,13 @@ export default {
     },
   },
   methods: {
+    thumbnailUrl(item) {
+      const params = new URLSearchParams({ path: item.Path });
+      if (this.token) {
+        params.set("token", this.token);
+      }
+      return `${FILES_API_URL}/files/thumbnail/?${params.toString()}`;
+    },
     async determineAdmin() {
       if (!this.token) {
         this.isAdmin = false;
@@ -625,7 +633,7 @@ export default {
     // === Selection Actions ===
     async downloadSelected() {
       // Télécharger chaque image sélectionnée
-      const images = this.selectedItems.filter(item => item.Img);
+      const images = this.selectedItems.filter(item => this.isPhotoItem(item));
       for (const item of images) {
         await this.downloadImage(item.Path, item.Name);
       }
@@ -633,7 +641,7 @@ export default {
     async scanSelected() {
       if (!this.token || !this.isAdmin) return;
 
-      const images = this.selectedItems.filter(item => item.Img);
+      const images = this.selectedItems.filter(item => this.isPhotoItem(item));
       if (images.length === 0) return;
 
       this.isProcessingSelection = true;
@@ -697,7 +705,7 @@ export default {
       }
     },
     async scanSingleImage(item) {
-      if (!this.token || !this.isAdmin || !item.Img) return;
+      if (!this.token || !this.isAdmin || !this.isPhotoItem(item)) return;
 
       try {
         const response = await axios.post(

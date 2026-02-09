@@ -122,14 +122,79 @@ class GetFilesTestCase(TestCase):
         response = self.client.get("/files/?path=nonexistent")
         self.assertEqual(response.status_code, 404)
 
-    def test_get_files_includes_thumbnails(self):
-        """Les fichiers images doivent avoir un thumbnail en base64."""
+    def test_get_files_returns_null_thumbnails(self):
+        """GET /files/ retourne Img: null pour les images (thumbnails via /files/thumbnail/)."""
         response = self.client.get("/files/?path=")
         data = response.json()
         images = [item for item in data if not item["isDirectory"]]
+        self.assertTrue(len(images) > 0)
         for img in images:
-            self.assertIsNotNone(img.get("Img"))
-            self.assertTrue(img["Img"].startswith("data:image/"))
+            self.assertIsNone(img.get("Img"))
+
+
+class GetThumbnailTestCase(TestCase):
+    """Tests pour l'endpoint GET /files/thumbnail/"""
+
+    def setUp(self):
+        self.client = Client()
+        self.temp_dir = tempfile.mkdtemp()
+        self.patcher = patch('files.views.ROOT_DIR', self.temp_dir)
+        self.patcher.start()
+
+        img = Image.new('RGB', (500, 500), color='green')
+        img.save(Path(self.temp_dir) / "thumb_test.jpg", format='JPEG')
+
+    def tearDown(self):
+        self.patcher.stop()
+        shutil.rmtree(self.temp_dir)
+
+    def test_thumbnail_no_path(self):
+        """GET /files/thumbnail/ sans path retourne 400."""
+        response = self.client.get("/files/thumbnail/")
+        self.assertEqual(response.status_code, 400)
+
+    def test_thumbnail_nonexistent(self):
+        """GET /files/thumbnail/ fichier inexistant retourne 404."""
+        response = self.client.get("/files/thumbnail/?path=nonexistent.jpg")
+        self.assertEqual(response.status_code, 404)
+
+    def test_thumbnail_guest(self):
+        """GET /files/thumbnail/ sans token retourne JPEG (guest/blurred)."""
+        response = self.client.get("/files/thumbnail/?path=thumb_test.jpg")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/jpeg")
+
+    @patch('files.views.verify_token')
+    def test_thumbnail_authenticated_via_query(self, mock_verify):
+        """GET /files/thumbnail/?token=xxx retourne JPEG (full quality)."""
+        mock_verify.return_value = {"user_id": 1}
+        response = self.client.get("/files/thumbnail/?path=thumb_test.jpg&token=test_token")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/jpeg")
+        self.assertIn("ETag", response)
+        self.assertIn("Cache-Control", response)
+
+    @patch('files.views.verify_token')
+    def test_thumbnail_etag_304(self, mock_verify):
+        """Deuxieme requete avec ETag retourne 304 Not Modified."""
+        mock_verify.return_value = {"user_id": 1}
+        r1 = self.client.get("/files/thumbnail/?path=thumb_test.jpg&token=test_token")
+        etag = r1["ETag"]
+        r2 = self.client.get(
+            "/files/thumbnail/?path=thumb_test.jpg&token=test_token",
+            HTTP_IF_NONE_MATCH=etag,
+        )
+        self.assertEqual(r2.status_code, 304)
+
+    def test_thumbnail_path_traversal(self):
+        """Path traversal doit etre bloque."""
+        response = self.client.get("/files/thumbnail/?path=../../etc/passwd")
+        self.assertIn(response.status_code, [400, 404])
+
+    def test_thumbnail_post_not_allowed(self):
+        """POST /files/thumbnail/ doit retourner 405."""
+        response = self.client.post("/files/thumbnail/")
+        self.assertEqual(response.status_code, 405)
 
 
 class AddFilesTestCase(TestCase):

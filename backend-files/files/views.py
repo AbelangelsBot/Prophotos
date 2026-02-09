@@ -1,4 +1,4 @@
-from django.http import FileResponse, JsonResponse
+from django.http import FileResponse, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from pathlib import Path
 import os
@@ -6,10 +6,10 @@ import shutil
 import base64
 import json
 import hashlib
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 from io import BytesIO
 from utils import verify_token
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+import pyvips
 import threading
 import requests
 import logging
@@ -175,67 +175,19 @@ def get_files(request):
             folders.sort(key=lambda f: f["Name"].lower())
             content.extend(folders)
 
-            # Traitement parallèle des images
+            # Ajouter les images triées par nom (Img: null, chargées via /files/thumbnail/)
             if images_to_process:
-                # Trier les images par nom avant traitement
                 images_to_process.sort(key=lambda item: item.name.lower())
-
-                cache_hits = 0
-                cache_misses = 0
-
-                def process_image(item):
-                    """Traite une image et retourne son dict."""
-                    nonlocal cache_hits, cache_misses
-                    t_img = time.time()
-
-                    # Vérifier si le cache existe pour cette image
-                    is_guest = not is_authenticated
-                    if is_authenticated:
-                        cache_key = _get_cache_key(item, (300, 300), 55, is_guest=False)
-                    else:
-                        cache_key = _get_cache_key(item, (150, 150), 25, is_guest=True)
-                    cache_file = CACHE_DIR / f"{cache_key}.jpg"
-                    was_cached = cache_file.exists()
-
-                    if is_authenticated:
-                        img = compress_and_encode_image(item, (300, 300), 55)
-                    else:
-                        img = compress_and_encode_image_guest(item)
-
-                    elapsed = time.time() - t_img
-                    if was_cached:
-                        cache_hits += 1
-                    else:
-                        cache_misses += 1
-
-                    if elapsed > 0.5:
-                        logger.warning(f"[PERF] Slow image: {item.name} took {elapsed:.3f}s (cached={was_cached})")
-
-                    return {
+                for item in images_to_process:
+                    content.append({
                         "Name": item.name,
                         "isDirectory": False,
                         "Path": str(item.relative_to(root)),
-                        "Img": img,
-                    }
-
-                # Utiliser ThreadPoolExecutor pour le traitement parallèle
-                # Utiliser executor.map pour préserver l'ordre d'entrée (A-Z)
-                t_compress = time.time()
-                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                    for result in executor.map(process_image, images_to_process):
-                        try:
-                            content.append(result)
-                        except Exception as e:
-                            logger.error(f"Erreur traitement image: {e}")
-                logger.info(f"[PERF] Image processing: {time.time() - t_compress:.3f}s ({len(images_to_process)} images, cache hits={cache_hits}, misses={cache_misses})")
-
-            # Mesurer la taille de la réponse
-            t_serial = time.time()
-            response = JsonResponse(content, safe=False)
-            logger.info(f"[PERF] JSON serialization: {time.time() - t_serial:.3f}s (response size={len(response.content)} bytes)")
+                        "Img": None,
+                    })
 
             logger.info(f"[PERF] === GET /files/ total: {time.time() - t_total:.3f}s (path='{relative_path}', {len(folders)} folders, {len(images_to_process)} images) ===")
-            return response
+            return JsonResponse(content, safe=False)
 
         except Exception as e:
             logger.exception("Erreur lors de la lecture des fichiers")
@@ -607,31 +559,30 @@ def _get_cached_thumbnail(image_path, max_size=(400, 400), quality=65, is_guest=
 
 
 def _compress_image_internal(image_path, max_size=(400, 400), quality=65):
-    """Compression interne sans cache."""
+    """Compression interne sans cache (pyvips)."""
     try:
-        with Image.open(image_path) as img:
-            img.thumbnail(max_size)
-            buffer = BytesIO()
-            img.convert("RGB").save(buffer, format="JPEG", quality=quality)
-            return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+        img = pyvips.Image.thumbnail(str(image_path), max_size[0], height=max_size[1])
+        jpeg_bytes = img.jpegsave_buffer(Q=quality)
+        return f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode()}"
     except Exception:
         return None
 
 
 def _compress_image_guest_internal(image_path):
-    """Compression pour invités sans cache."""
+    """Compression pour invités sans cache (pyvips)."""
     try:
-        with Image.open(image_path) as img:
-            img.thumbnail((150, 150))
-            img = img.convert("RGB")
-            img = img.filter(ImageFilter.GaussianBlur(8))
-            enhancer = ImageEnhance.Color(img)
-            img = enhancer.enhance(0.3)
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(0.7)
-            buffer = BytesIO()
-            img.save(buffer, format="JPEG", quality=25)
-            return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+        img = pyvips.Image.thumbnail(str(image_path), 150, height=150)
+        # Gaussian blur
+        img = img.gaussblur(4)
+        # Desaturation : melange 30% couleur + 70% niveaux de gris
+        if img.bands >= 3:
+            mono = img.colourspace("b-w").colourspace("srgb")
+            img = img * 0.3 + mono * 0.7
+        # Reduction de contraste : melange 70% image + 30% gris moyen
+        img = img * 0.7 + 128 * 0.3
+        img = img.cast("uchar")
+        jpeg_bytes = img.jpegsave_buffer(Q=25)
+        return f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode()}"
     except Exception:
         return None
 
@@ -653,6 +604,85 @@ def compress_and_encode_image_guest(image_path):
     - Desaturation des couleurs
     """
     return _get_cached_thumbnail(image_path, (150, 150), 25, is_guest=True)
+
+
+@csrf_exempt
+def get_thumbnail(request):
+    """Sert une miniature JPEG individuelle pour une image donnée."""
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed."}, status=405)
+
+    relative_path = request.GET.get("path", "")
+    if not relative_path:
+        return JsonResponse({"error": "Path required."}, status=400)
+
+    root = Path(ROOT_DIR).resolve()
+    full_path = (root / str(relative_path).lstrip("/\\")).resolve()
+
+    # Protection path traversal
+    try:
+        if not full_path.is_relative_to(root):
+            return JsonResponse({"error": "Invalid path."}, status=400)
+    except AttributeError:
+        if str(full_path).find(str(root)) != 0:
+            return JsonResponse({"error": "Invalid path."}, status=400)
+
+    if not full_path.exists() or not full_path.is_file():
+        return HttpResponse(status=404)
+
+    # Auth: accepter token depuis query param OU header
+    is_authenticated = False
+    token = request.GET.get("token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+    if token:
+        try:
+            verify_token(token)
+            is_authenticated = True
+        except Exception:
+            pass
+
+    # Parametres selon auth
+    if is_authenticated:
+        max_size, quality, is_guest = (300, 300), 55, False
+    else:
+        max_size, quality, is_guest = (150, 150), 25, True
+
+    cache_key = _get_cache_key(full_path, max_size, quality, is_guest=is_guest)
+    cache_file = CACHE_DIR / f"{cache_key}.jpg"
+
+    # ETag / requete conditionnelle
+    etag = f'"{cache_key}"'
+    if request.headers.get("If-None-Match") == etag:
+        response = HttpResponse(status=304)
+        response["ETag"] = etag
+        return response
+
+    # Servir depuis le cache ou generer
+    if cache_file.exists():
+        jpeg_bytes = cache_file.read_bytes()
+    else:
+        if is_guest:
+            data_uri = _compress_image_guest_internal(str(full_path))
+        else:
+            data_uri = _compress_image_internal(str(full_path), max_size, quality)
+
+        if not data_uri:
+            return HttpResponse(status=500)
+
+        jpeg_bytes = base64.b64decode(data_uri.split(",")[1])
+
+        try:
+            cache_file.write_bytes(jpeg_bytes)
+        except Exception:
+            pass
+
+    response = HttpResponse(jpeg_bytes, content_type="image/jpeg")
+    response["Cache-Control"] = "private, max-age=3600"
+    response["ETag"] = etag
+    return response
 
 
 @csrf_exempt
