@@ -9,7 +9,11 @@ import hashlib
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 from io import BytesIO
 from utils import verify_token
-import pyvips
+try:
+    import pyvips
+    HAS_PYVIPS = True
+except (ImportError, OSError):
+    HAS_PYVIPS = False
 import threading
 import requests
 import logging
@@ -559,30 +563,47 @@ def _get_cached_thumbnail(image_path, max_size=(400, 400), quality=65, is_guest=
 
 
 def _compress_image_internal(image_path, max_size=(400, 400), quality=65):
-    """Compression interne sans cache (pyvips)."""
+    """Compression interne sans cache (pyvips si disponible, sinon Pillow)."""
     try:
-        img = pyvips.Image.thumbnail(str(image_path), max_size[0], height=max_size[1])
-        jpeg_bytes = img.jpegsave_buffer(Q=quality)
-        return f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode()}"
+        if HAS_PYVIPS:
+            img = pyvips.Image.thumbnail(str(image_path), max_size[0], height=max_size[1])
+            jpeg_bytes = img.jpegsave_buffer(Q=quality)
+            return f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode()}"
+        else:
+            with Image.open(image_path) as img:
+                img.thumbnail(max_size)
+                buffer = BytesIO()
+                img.convert("RGB").save(buffer, format="JPEG", quality=quality)
+                return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode()}"
     except Exception:
         return None
 
 
 def _compress_image_guest_internal(image_path):
-    """Compression pour invités sans cache (pyvips)."""
+    """Compression pour invités sans cache (pyvips si disponible, sinon Pillow)."""
     try:
-        img = pyvips.Image.thumbnail(str(image_path), 150, height=150)
-        # Gaussian blur
-        img = img.gaussblur(4)
-        # Desaturation : melange 30% couleur + 70% niveaux de gris
-        if img.bands >= 3:
-            mono = img.colourspace("b-w").colourspace("srgb")
-            img = img * 0.3 + mono * 0.7
-        # Reduction de contraste : melange 70% image + 30% gris moyen
-        img = img * 0.7 + 128 * 0.3
-        img = img.cast("uchar")
-        jpeg_bytes = img.jpegsave_buffer(Q=25)
-        return f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode()}"
+        if HAS_PYVIPS:
+            img = pyvips.Image.thumbnail(str(image_path), 150, height=150)
+            img = img.gaussblur(4)
+            if img.bands >= 3:
+                mono = img.colourspace("b-w").colourspace("srgb")
+                img = img * 0.3 + mono * 0.7
+            img = img * 0.7 + 128 * 0.3
+            img = img.cast("uchar")
+            jpeg_bytes = img.jpegsave_buffer(Q=25)
+            return f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode()}"
+        else:
+            with Image.open(image_path) as img:
+                img.thumbnail((150, 150))
+                img = img.convert("RGB")
+                img = img.filter(ImageFilter.GaussianBlur(8))
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(0.3)
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(0.7)
+                buffer = BytesIO()
+                img.save(buffer, format="JPEG", quality=25)
+                return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode()}"
     except Exception:
         return None
 
