@@ -413,6 +413,11 @@ export default {
           return PHOTO_EXTENSIONS.includes(ext);
         });
 
+        // Trier par nom A-Z pour une navigation cohérente
+        this.folderImages.sort((a, b) =>
+          (a.Name || "").localeCompare(b.Name || "", "fr", { numeric: true, sensitivity: "base" })
+        );
+
         // Trouver l'index de l'image actuelle
         this.currentImageIndex = this.folderImages.findIndex(
           img => img.Path === this.imageData.Path

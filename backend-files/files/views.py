@@ -164,11 +164,15 @@ def get_files(request):
                 elif item.is_file() and item.suffix.lower() in image_extensions:
                     images_to_process.append(item)
 
-            # Ajouter les dossiers en premier
+            # Trier les dossiers par nom (A-Z)
+            folders.sort(key=lambda f: f["Name"].lower())
             content.extend(folders)
 
             # Traitement parallèle des images
             if images_to_process:
+                # Trier les images par nom avant traitement
+                images_to_process.sort(key=lambda item: item.name.lower())
+
                 def process_image(item):
                     """Traite une image et retourne son dict."""
                     if is_authenticated:
@@ -183,11 +187,10 @@ def get_files(request):
                     }
 
                 # Utiliser ThreadPoolExecutor pour le traitement parallèle
+                # Utiliser executor.map pour préserver l'ordre d'entrée (A-Z)
                 with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                    futures = {executor.submit(process_image, item): item for item in images_to_process}
-                    for future in as_completed(futures):
+                    for result in executor.map(process_image, images_to_process):
                         try:
-                            result = future.result()
                             content.append(result)
                         except Exception as e:
                             logger.error(f"Erreur traitement image: {e}")

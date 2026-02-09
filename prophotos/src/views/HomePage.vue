@@ -21,10 +21,12 @@
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
           <label class="form-label mb-0" for="sort-type">Trier par</label>
           <select id="sort-type" v-model="sortType" class="form-select w-auto">
-            <option value="photos-first">Photos d'abord (defaut)</option>
-            <option value="name-asc">Nom A-Z</option>
+            
+            <option value="name-asc">Nom A-Z (defaut)</option>
             <option value="name-desc">Nom Z-A</option>
+            <option value="photos-first">Photos d'abord</option>
             <option value="type">Type (Dossiers, Photos, Fichiers)</option>
+            
           </select>
         </div>
 
@@ -333,7 +335,7 @@ export default {
       newFolderName: "",
       uploading: false,
       creatingFolder: false,
-      sortType: "photos-first",
+      sortType: "name-asc",
       // Folder scan
       isScanningFolder: false,
       folderScanProgress: null,
