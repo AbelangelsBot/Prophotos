@@ -843,7 +843,7 @@ export default {
 
     async downloadImage(imagePath, imageName) {
       try {
-        const response = await axios.get(`${FILES_API_URL}/files/image/download`, {
+        const response = await axios.get(`${FILES_API_URL}/files/image/download/`, {
           params: { path: imagePath },
           headers: { Authorization: `Bearer ${this.token}` },
           responseType: "blob",
