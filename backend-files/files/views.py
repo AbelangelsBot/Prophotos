@@ -850,7 +850,12 @@ def download_image(request):
         if not full_path.exists():
             return JsonResponse({"error": "Fichier non trouvé."}, status=404)
 
-        return FileResponse(open(full_path, "rb"), as_attachment=True)
+        response = FileResponse(open(full_path, "rb"), as_attachment=True)
+        # Prevent proxy/browser caching for downloads to avoid 304 + empty body issues
+        response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response["Pragma"] = "no-cache"
+        response["Expires"] = "0"
+        return response
 
     return JsonResponse({"error": "Méthode non autorisée."}, status=405)
 
