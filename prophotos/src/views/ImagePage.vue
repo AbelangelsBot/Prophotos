@@ -47,43 +47,90 @@
             </div>
           </div>
 
-          <div class="card-body">
-            <h5 class="card-title">{{ imageData.Name }}</h5>
-            <p class="card-text"><strong>Path:</strong> {{ imageData.Path }}</p>
-            <p class="card-text"><strong>Size:</strong> {{ imageData.Size }}</p>
-            <p class="card-text"><strong>Type:</strong> {{ imageData.Type }}</p>
+          <div class="card-body image-info">
+            <!-- Image header: title + type badge -->
+<div class="img-meta-header">
+  <div class="img-title-row">
+    <h5 class="img-title">{{ imageData.Name }}</h5>
+    <span class="img-type-badge">{{ imageData.Type }}</span>
+  </div>
 
-            <!-- Boutons d'action AVANT la section recfac -->
-            <div class="mt-3 d-flex flex-wrap gap-2 align-items-center">
-              <button v-if="token" @click="downloadImage" class="btn btn-primary">
-                Télécharger l'image
-              </button>
-              <button @click="goBackToFolder" class="btn btn-outline-secondary">
-                Retour au dossier
-              </button>
-              <p v-if="!token" class="text-danger mb-0">Vous devez être connecté pour télécharger cette image.</p>
-            </div>
+  <div class="img-info-row">
+    <div class="img-info-item">
+      <span class="img-info-label">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13">
+          <path d="M2 2h12v12H2zM5 2v12M11 2v12M2 5h12M2 11h12"/>
+        </svg>
+        Chemin
+      </span>
+      <span class="img-info-value img-path" :title="imageData.Path">{{ imageData.Path }}</span>
+    </div>
+    <div class="img-info-item img-info-size">
+      <span class="img-info-label">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13">
+          <rect x="2" y="2" width="12" height="12" rx="2"/>
+          <path d="M2 9h12M9 2v12"/>
+        </svg>
+        Taille
+      </span>
+      <span class="img-info-value">{{ imageData.Size }}</span>
+    </div>
+  </div>
+</div>
 
-            <!-- Navigation mobile (bas de page) -->
-            <div class="d-flex d-md-none justify-content-between mt-3 mobile-nav">
-              <button
-                @click="goToPreviousImage"
-                class="btn btn-outline-primary"
-                :disabled="!hasPreviousImage"
-              >
-                &larr; Précédente
-              </button>
-              <span class="align-self-center text-muted small">
-                {{ currentImageIndex + 1 }} / {{ folderImages.length }}
-              </span>
-              <button
-                @click="goToNextImage"
-                class="btn btn-outline-primary"
-                :disabled="!hasNextImage"
-              >
-                Suivante &rarr;
-              </button>
-            </div>
+<!-- Actions -->
+<div class="img-actions">
+  <template v-if="token">
+    <button @click="goBackToFolder" class="img-btn img-btn-ghost">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+      <path d="M12 4L6 10l6 6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    Retour
+  </button>
+  
+    <button @click="downloadImage" class="img-btn img-btn-primary">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <path d="M10 3v10M6 9l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3 15h14" stroke-linecap="round"/>
+      </svg>
+      Télécharger
+    </button>
+    <button
+      v-if="canShare"
+      @click="shareImage"
+      class="img-btn img-btn-ghost img-btn-icon d-md-none"
+      aria-label="Partager"
+      title="Partager"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+      </svg>
+    </button>
+  </template>
+  <p v-else class="img-auth-notice">
+    <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8 1a3.5 3.5 0 0 0-3.5 3.5v1A2.5 2.5 0 0 0 2 8v5a2.5 2.5 0 0 0 2.5 2.5h7A2.5 2.5 0 0 0 14 13V8a2.5 2.5 0 0 0-2.5-2.5v-1A3.5 3.5 0 0 0 8 1zm0 1.5A2 2 0 0 1 10 4.5v1H6v-1A2 2 0 0 1 8 2.5z"/></svg>
+    Connectez-vous pour télécharger
+  </p>
+  
+</div>
+
+<!-- Mobile navigation -->
+<div class="img-mobile-nav d-flex d-md-none">
+  <button @click="goToPreviousImage" class="img-nav-btn" :disabled="!hasPreviousImage">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+      <path d="M12 4L6 10l6 6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    Précédente
+  </button>
+  <span class="img-nav-counter">{{ currentImageIndex + 1 }}<span class="img-nav-total"> / {{ folderImages.length }}</span></span>
+  <button @click="goToNextImage" class="img-nav-btn" :disabled="!hasNextImage">
+    Suivante
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+      <path d="M8 4l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+</div>
 
             <!-- Section Reconnaissance Faciale (collapsible) -->
             <div v-if="recfacData" class="mt-4">
@@ -351,6 +398,8 @@ export default {
       isSwiping: false,
       // Section recfac collapsible
       recfacExpanded: false,
+      // Share
+      canShare: typeof navigator !== "undefined" && !!navigator.share,
     };
   },
   computed: {
@@ -365,6 +414,14 @@ export default {
     },
     isSwipingRight() {
       return this.swipeOffset < -50;
+    },
+    displayImageName() {
+      const name = this.imageData.Name || "";
+      const lastDot = name.lastIndexOf(".");
+      if (lastDot > 0) {
+        return name.slice(0, lastDot);
+      }
+      return name;
     },
   },
   methods: {
@@ -604,9 +661,44 @@ export default {
         document.body.appendChild(link);
         link.click();
       } catch (error) {
-        console.error("Erreur lors du téléchargement de l'image :", error);
+        console.error("Erreur lors du t?l?chargement de l'image :", error);
       }
     },
+
+    async shareImage() {
+      if (!this.canShare || !this.imageData.Path) {
+        return;
+      }
+
+      try {
+        const response = await axios.get(`${FILES_API_URL}/files/image/download/`, {
+          params: { path: this.imageData.Path },
+          headers: { Authorization: `Bearer ${this.token}` },
+          responseType: "blob",
+        });
+
+        const blob = response.data;
+        const filename = this.imageData.Name || "image";
+        const file = new File([blob], filename, { type: blob.type || "image/jpeg" });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: this.imageData.Name || "Image",
+          });
+          return;
+        }
+
+        const url = `${FILES_API_URL}/files/image/download/?path=${encodeURIComponent(this.imageData.Path)}`;
+        await navigator.share({
+          title: this.imageData.Name || "Image",
+          url,
+        });
+      } catch (error) {
+        console.error("Erreur lors du partage de l'image :", error);
+      }
+    },
+
 
     formatDate(dateString) {
       if (!dateString) return "N/A";
@@ -1164,5 +1256,261 @@ export default {
   .card-img-top {
     max-height: 350px;
   }
+}
+
+.image-info {
+  border-top: 1px solid #eef1f4;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 140px);
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.info-value {
+  font-size: 0.95rem;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.image-actions .btn {
+  min-width: 110px;
+}
+
+.btn-icon-only {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon-only svg {
+  width: 20px;
+  height: 20px;
+}
+
+@media (max-width: 767px) {
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .image-actions .btn {
+    min-width: 0;
+  }
+}
+
+
+
+/* ── Image metadata header ── */
+.img-meta-header {
+  padding: 1rem 1.25rem 0;
+}
+
+.img-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.img-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.img-type-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Info row ── */
+.img-info-row {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.875rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  flex-wrap: wrap;
+}
+
+.img-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.img-info-size {
+  flex: 0 0 auto;
+}
+
+.img-info-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9ca3af;
+}
+
+.img-info-value {
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.img-path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+/* ── Actions ── */
+.img-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.25rem;
+  flex-wrap: wrap;
+}
+
+.img-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.img-btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+.img-btn-primary:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  box-shadow: 0 2px 8px rgba(37,99,235,0.25);
+}
+
+.img-btn-ghost {
+  background: transparent;
+  color: #374151;
+  border-color: #e5e7eb;
+}
+.img-btn-ghost:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.img-btn-icon {
+  padding: 0.45rem;
+  width: 36px;
+  height: 36px;
+  justify-content: center;
+}
+
+.img-auth-notice {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  color: #dc2626;
+  margin: 0;
+}
+
+/* ── Mobile nav ── */
+.img-mobile-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 1rem;
+  margin: 0 0.75rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e9ecef;
+  border-radius: 10px;
+}
+
+.img-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #2563eb;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.img-nav-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.img-nav-btn:disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.img-nav-counter {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+.img-nav-total {
+  font-weight: 400;
+  color: #9ca3af;
 }
 </style>
